@@ -8,6 +8,18 @@ PDtSDOF_batched_solver： 可进一步考虑P-Delta效应（同样可批量分�
 注：批量分析目前仅支持相同地震动，
 但各个SDOF的周期、材料、屈服位移（用于计算累积塑性位移）、倒塌判定位移、最大分析位移均可单独指定。
 各个函数的输入、输出参数可见对应的文档注释和类型注解。
+各个函数计算后返回一个dict，可用的键包括：
+* 是否收敛，'converge': bool
+* 是否倒塌，'collapse': bool | tuple[bool, ...]
+* 最大相对位移：'maxDisp': float | list[float]]
+* 最大绝对速度：'maxVel': float | list[float]]
+* 最大绝对加速度：'maxAccel': float | list[float]]
+* 累积弹塑性耗能：'Ec': float | list[float]]
+* 累积Rayleigh阻尼耗能：'Ev': float | list[float]]
+* 最大基底反力：'maxReaction': float | list[float]]
+* 累积位移：'CD': float | list[float]]
+* 累积塑性位移：'CPD': float | list[float]]
+* 残余位移：'resDisp': float | list[float]]
 """
 
 import sys
@@ -39,9 +51,6 @@ if __name__ == "__main__":
     F_ELE = []
     TEMP = [0]
 
-# ---------------------------------------------------------------------------
-# --------------------------------- 单个SDOF求解 -----------------------------
-# ---------------------------------------------------------------------------
 
 def SDOF_solver(
         T: int,
@@ -55,7 +64,7 @@ def SDOF_solver(
         g: float=9800,
         collapse_disp: float=1e14,
         maxAnalysis_disp: float=1e15,
-    ):
+    ) -> dict[str, bool | float]:
     """SDOF求解函数，每次调用对一个SDOF进行非线性时程分析。
     模型结构为两个具有相同位置的结点，中间采用zeroLength单元连接。
 
@@ -72,213 +81,24 @@ def SDOF_solver(
         collapse_disp (float, optional): 倒塌位移判定准则，默认1e14
         maxAnalysis_disp (float, optional): 最大分析位移，默认1e15
 
-    Returns: Tuple[int, tuple]
-        元组第一项为计算状态
-        * 1 - 分析成功，结构不倒塌
-        * 2 - 分析成功，结构倒塌
-        * 3 - 分析不收敛，结构不倒塌
-        * 4 - 分析不收敛，结构倒塌\n
-        元组第二项为结构响应，依次为：
-        * 最大相对位移
-        * 最大绝对速度
-        * 最大绝对加速度
-        * 累积弹塑性耗能
-        * 累积Rayleigh阻尼耗能
-        * 最大基底反力
-        * 累积位移
-        * 累积塑性位移
-        * 残余位移
+    Returns: dict[str, bool | float]
+        键值对依次包括：
+        * 是否收敛，'converge': bool
+        * 是否倒塌，'collapse': bool
+        * 最大相对位移：'maxDisp': float
+        * 最大绝对速度：'maxVel': float
+        * 最大绝对加速度：'maxAccel': float
+        * 累积弹塑性耗能：'Ec': float
+        * 累积Rayleigh阻尼耗能：'Ev': float
+        * 最大基底反力：'maxReaction': float
+        * 累积位移：'CD': float
+        * 累积塑性位移：'CPD': float
+        * 残余位移：'resDisp': float
     """
-
-    omega = 2 * pi / T
-    NPTS = len(gm)
-    duration = (NPTS - 1) * dt + fv_duration
-    a = 0
-    b = 2 * zeta / omega
-
-    ops.wipe()
-    ops.model('basic', '-ndm', 2, '-ndf', 3)
-    ops.node(1, 0, 0)
-    ops.node(2, 0, 0)
-    ops.fix(1, 1, 1, 1)
-    ops.fix(2, 0, 1, 1)
-    ops.mass(2, m, 0, 0)
-    matTag = 0
-    for matType, paras in materials.items():
-        matTag += 1
-        ops.uniaxialMaterial(matType, matTag, *paras)
-    ops.uniaxialMaterial('Parallel', matTag + 1, *range(1, matTag + 1))
-    ops.element('zeroLength', 1, 1, 2, '-mat', matTag + 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
-    ops.region(1, '-ele', 1, '-rayleigh', a, 0, b, 0)  # Rayleigh阻尼
-    ops.timeSeries('Path', 1, '-dt', dt, '-values', *gm, '-factor', g)
-    ops.pattern('MultipleSupport', 1)
-    ops.groundMotion(1, 'Plain', '-accel', 1)
-    ops.imposedMotion(1, 1, 1)
-    # ops.recorder('Node', '-file', 'd.out',  '-node', 2, '-dof', 1, 'disp')
-    state, response = _TimeHistoryAnalysis(dt, duration, 2, collapse_disp, maxAnalysis_disp, uy)
-    # 分析
-    results = dict()
-    results['state'] = state
-    results['maxDisp'] = response[0]
-    results['maxVel'] = response[1]
-    results['maxAccel'] = response[2]
-    results['Ec'] = response[3]
-    results['Ev'] = response[4]
-    results['maxReaction'] = response[5]
-    results['CD'] = response[6]
-    results['CPD'] = response[7]
+    model = _SDOF_solver(T, gm, dt, materials, uy, fv_duration, zeta, m, g, collapse_disp, maxAnalysis_disp)
+    results = model.get_results()
     return results
 
-def _TimeHistoryAnalysis(
-        dt_init: float,
-        duration: float,
-        ctrl_node: float,
-        collapse_disp: float,
-        maxAnalysis_disp: float,
-        uy: float,
-        min_factor: float=1e-6, max_factor: float=1) -> Tuple[int, Dict]:
-    """自适应时程分析，可根据收敛状况自动调整步长和迭代算法
-
-    Args:
-        dt_init (float): 地震动步长
-        duration (float): 地震动持时
-        ctrl_node (int): 控制节点编号
-        collapse_disp (float): 倒塌判定位移
-        maxAnalysis_disp (float): 最大分析的位移
-        uy (float): 屈服位移
-        min_factor (float): 自适应步长的最小调整系数
-        max_factor (float): 自适应步长的最大调整系数
-    
-    Return: int
-        * 1 - 分析成功，结构不倒塌
-        * 2 - 分析成功，结构倒塌
-        * 3 - 分析不收敛，结构不倒塌
-        * 4 - 分析不收敛，结构倒塌
-    """
-
-    result = (0,) * 100  # 用来储存结构响应
-    algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
-    algorithm_id = 0
-    ops.wipeAnalysis()
-    ops.constraints("Transformation")
-    ops.numberer("Plain")
-    ops.system("BandGeneral")
-    ops.test("EnergyIncr", 1.0e-5, 30)
-    ops.algorithm("KrylovNewton")
-    ops.integrator("Newmark", 0.5, 0.25)
-    ops.analysis("Transient")
-
-    collapse_flag = False
-    maxAna_flag = False
-    factor = 1
-    dt = dt_init
-    while True:
-        ok = ops.analyze(1, dt)
-        if ok == 0:
-            # 当前步收敛
-            result = _get_result(ctrl_node, 1, result, uy)  # 计算当前步结构响应
-            current_collapse_flag, maxAna_flag = _SDR_tester(ctrl_node, collapse_disp, maxAnalysis_disp)  # 判断当前步是否收敛
-            collapse_flag = collapse_flag or current_collapse_flag
-            if (ops.getTime() >= duration or (abs(ops.getTime() - duration) < 1e-5)) and not collapse_flag:
-                return 1, result[: 9]  # 分析成功，结构不倒塌
-            if ops.getTime() >= duration and collapse_flag:
-                return 2, result[: 9]  # 分析成功，结构倒塌
-            if maxAna_flag:
-                return 2, result[: 9]  # 分析成功，结构倒塌
-            factor *= 2
-            factor = min(factor, max_factor)
-            algorithm_id -= 1
-            algorithm_id = max(0, algorithm_id)
-        else:
-            # 当前步不收敛
-            factor *= 0.5
-            if factor < min_factor:
-                factor = min_factor
-                algorithm_id += 1
-                if algorithm_id == 4 and collapse_flag:
-                    return 4, result[: 9]
-                if algorithm_id == 4 and not collapse_flag:
-                    return 3, result[: 9]
-        dt = dt_init * factor
-        if dt + ops.getTime() > duration:
-            dt = duration - ops.getTime()
-        ops.algorithm(*algorithms[algorithm_id])
-
-
-def _SDR_tester(ctrl_node: list, collapse_disp: float, maxAnalysis_disp: float
-               ) -> tuple[bool, bool]:
-    """
-    return (tuple[bool, bool]): 是否倒塌？是否超过最大计算位移？
-    """
-    if collapse_disp > maxAnalysis_disp:
-        raise SDOF_Error('`MaxAnalysisDrift`应大于`CollapseDrift`')
-    result = (False, False)
-    u = abs(ops.nodeDisp(ctrl_node, 1) - ops.nodeDisp(1, 1))
-    if u >= collapse_disp:
-        result = (True, False)
-    if u >= maxAnalysis_disp:
-        result = (True, True)
-    return result
-
-
-def _get_result(
-        ctrl_node: int,
-        eleTag: int,
-        input_result: tuple[float],
-        uy: float=None
-    ) -> Tuple:
-    """获取分析结果
-    """
-    # t.append(ops.getTime())
-    maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, u_old,\
-        F_Hys_old, F_Ray_old, u_cent, *_ = input_result
-    # 最大相对位移
-    u = ops.nodeDisp(ctrl_node, 1) - ops.nodeDisp(1, 1)
-    du = u - u_old
-    maxDisp = max(maxDisp, abs(u))
-    # 最大绝对速度
-    v = ops.nodeVel(ctrl_node, 1)
-    maxVel = max(maxVel, abs(v))
-    # 最大绝对加速度
-    a = ops.nodeAccel(ctrl_node, 1)
-    maxAccel = max(maxAccel, abs(a))
-    # 累积弹塑性耗能
-    F_Hys = ops.eleResponse(eleTag, 'material', 1, 'stress')[0]
-    Si = 0.5 * (F_Hys + F_Hys_old) * du
-    Ec += Si
-    # 累积Rayleigh耗能
-    F_Ray = ops.eleResponse(eleTag, 'rayleighForces')[0]
-    Si = -0.5 * (F_Ray + F_Ray_old) * du
-    Ev += Si
-    # 最大基底反力
-    F = F_Ray + ops.eleForce(eleTag, 1)
-    maxReaction = max(maxReaction, abs(F))
-    # 累积变形
-    CD += abs(du)
-    # 累积塑性变形
-    if uy is None:
-        CPD = None
-    else:
-        if u > u_cent + uy:
-            # 正向屈服
-            CPD += u - (u_cent + uy)
-            u_cent += u - (u_cent + uy)
-        elif u < u_cent - uy:
-            # 负向屈服
-            CPD += u_cent - uy - u
-            u_cent -= u_cent - uy - u
-        else:
-            CPD += 0
-    return maxDisp, maxVel, maxAccel,\
-        Ec, Ev, maxReaction,\
-        CD, CPD, u,\
-        F_Hys, F_Ray, u_cent
-    # 12个参数
-    
-
-# -------------------------------------------------------------------------------
-# --------------------------------- 多个SDOF批量求解 -----------------------------
-# -------------------------------------------------------------------------------
 
 def SDOF_batched_solver(
         N_SDOFs: int,
@@ -293,7 +113,7 @@ def SDOF_batched_solver(
         g: float=9800,
         ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
         ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,
-    ) -> Tuple[int, Tuple[bool, ...], Tuple[List[float], ...]]:
+    ) -> dict[str, bool | tuple[bool, ...] | list[float]]:
     """SDOF求解函数，每次调用可对多个SDOF在同一模型空间下进行非线性时程分析。
     每个SDOF的模型结构与`SDOF_solver`函数相同，但可批量创建。
 
@@ -311,266 +131,24 @@ def SDOF_batched_solver(
         ls_collapse_disp (tuple[float, ...], optional): 倒塌位移判定准则，默认1e14
         ls_maxAnalysis_disp (tuple[float, ...], optional): 最大分析位移，默认1e15
 
-    Returns: Tuple[int, tuple, list[tuple]]
-        元组第一项为计算状态
-        * 1 - 分析不收敛，结构不倒塌
-        * 2 - 分析不收敛，结构倒塌\n
-        元组第二项为SDOF倒塌状态响应，倒塌为True，不倒塌为False  
-        元组第三项为各个SDOF的结构响应，每个SDOF的响应类型依次为：
-        * 最大相对位移
-        * 最大绝对速度
-        * 最大绝对加速度
-        * 累积弹塑性耗能
-        * 累积Rayleigh阻尼耗能
-        * 最大基底反力
-        * 累积位移
-        * 累积塑性位移
-        * 残余变形
+    Returns: dict[str, bool | tuple[bool, ...] | list[float]]
+        键值对依次包括：
+        * 是否收敛，'converge': bool
+        * 是否倒塌，'collapse': tuple[bool, ...]
+        * 最大相对位移：'maxDisp': list[float]]
+        * 最大绝对速度：'maxVel': list[float]]
+        * 最大绝对加速度：'maxAccel': list[float]]
+        * 累积弹塑性耗能：'Ec': list[float]]
+        * 累积Rayleigh阻尼耗能：'Ev': list[float]]
+        * 最大基底反力：'maxReaction': list[float]]
+        * 累积位移：'CD': list[float]]
+        * 累积塑性位移：'CPD': list[float]]
+        * 残余位移：'resDisp': list[float]]
     """
-    if not (N_SDOFs == len(ls_T) == len(ls_materials)):
-        raise SDOF_Error(f'SDOF数量、周期数量、材料数量不等！({N_SDOFs}, {len(ls_T)}, {len(ls_materials)})')
-
-    NPTS = len(gm)
-    duration = (NPTS - 1) * dt + fv_duration
-
-    ops.wipe()
-    ops.model('basic', '-ndm', 2, '-ndf', 3)
-    nodeTag = 1  # 当前节点编号
-    baseNodes = []  # 基底节点编号
-    ctrlNodes = []  # 控制节点的编号
-    matTag = 1  # 当前材料编号
-    ctrlMats = []  # 控制材料的编号
-    eleTag = 1  # 当前单元编号
-    ctrlEles = []  # 控制单元的编号
-    for i in range(N_SDOFs):
-        # 节点、约束、质量
-        ops.node(nodeTag, 0, 0)
-        ops.node(nodeTag + 1, 0, 0)
-        ops.fix(nodeTag, 1, 1, 1)
-        ops.fix(nodeTag + 1, 0, 1, 1)
-        ops.mass(nodeTag + 1, ls_m[i], 0, 0)
-        inode, jnode = nodeTag, nodeTag + 1
-        baseNodes.append(nodeTag)
-        ctrlNodes.append(nodeTag + 1)
-        nodeTag += 2
-        # 材料
-        material = ls_materials[i]
-        matTag_start = matTag
-        for matType, paras in material.items():
-            ops.uniaxialMaterial(matType, matTag, *paras)
-            matTag += 1
-        ops.uniaxialMaterial('Parallel', matTag, *range(matTag_start, matTag))
-        ctrlMats.append(matTag)
-        matTag += 1
-        # 单元
-        ops.element('zeroLength', eleTag, inode, jnode, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
-        T = ls_T[i]
-        omega = 2 * pi / T
-        b = 2 * zeta / omega
-        ops.region(i + 1, '-ele', eleTag, '-rayleigh', 0, 0, b, 0)  # Rayleigh阻尼
-        ctrlEles.append(eleTag)
-        eleTag += 1
-
-    ops.timeSeries('Path', 1, '-dt', dt, '-values', *gm, '-factor', g)
-    ops.pattern('MultipleSupport', 1)
-    ops.groundMotion(1, 'Plain', '-accel', 1)
-    for tag in baseNodes:
-        ops.imposedMotion(tag, 1, 1)
-    state, collapse, response = _batchedTimeHistoryAnalysis(N_SDOFs, dt, duration, baseNodes, ctrlNodes, ctrlEles,
-                                ls_collapse_disp, ls_maxAnalysis_disp, ls_uy)
-    results = dict()
-    results['state'] = state
-    results['collapse'] = collapse
-    results['maxDisp'] = response[0]
-    results['maxVel'] = response[1]
-    results['maxAccel'] = response[2]
-    results['Ec'] = response[3]
-    results['Ev'] = response[4]
-    results['maxReaction'] = response[5]
-    results['CD'] = response[6]
-    results['CPD'] = response[7]
+    model = _SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
+    results = model.get_results()
     return results
-    
 
-def _batchedTimeHistoryAnalysis(
-        N_SDOFs: int,
-        dt_init: float,
-        duration: float,
-        baseNodes: tuple,
-        ctrlNodes: list,
-        ctrlEles: list,
-        collapse_disp: tuple,
-        maxAnalysis_disp: tuple,
-        ls_uy: tuple,
-        min_factor: float=1e-6, max_factor: float=1
-        ) -> Tuple[int, Tuple[bool, ...], Tuple[List[float], ...]]:
-    """自适应时程分析，可根据收敛状况自动调整步长和迭代算法
-
-    Args:
-        N_SDOFs (int): SDOF的数量
-        dt_init (float): 地震动步长
-        duration (float): 地震动持时
-        base_node (tuple): 基底节点编号
-        ctrl_node (tuple): 控制节点编号
-        collapse_disp (tuple): 倒塌判定位移
-        maxAnalysis_disp (tuple): 最大分析的位移
-        uy (tuple): 屈服位移
-        min_factor (float): 自适应步长的最小调整系数
-        max_factor (float): 自适应步长的最大调整系数
-    
-    Return: Tuple[int, tuple, list[tuple]]
-        元组第一项为计算状态
-        * 1 - 分析收敛
-        * 2 - 分析不收敛\n
-        元组第二项为SDOF倒塌状态响应，倒塌为True，不倒塌为False\n
-        元组第三项为各个SDOF的结构响应
-    """
-    result = tuple([0.0] * N_SDOFs for _ in range(100))  # 用来储存结构响应
-    algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
-    algorithm_id = 0
-    ops.wipeAnalysis()
-    ops.constraints("Transformation")
-    ops.numberer("Plain")
-    ops.system("BandGeneral")
-    ops.test("EnergyIncr", 1.0e-5, 30)
-    ops.algorithm("KrylovNewton")
-    ops.integrator("Newmark", 0.5, 0.25)
-    ops.analysis("Transient")
-
-    collapse_flag = (False,) * N_SDOFs
-    maxAna_flag = False
-    factor = 1
-    dt = dt_init
-    while True:
-        ok = ops.analyze(1, dt)
-        if ok == 0:
-            # 当前步收敛
-            result = _get_batched_results(N_SDOFs, baseNodes, ctrlNodes, ctrlEles, result, ls_uy)  # 计算当前步结构响应
-            current_collapse_flag, maxAna_flag = _SDR_batched_tester(N_SDOFs, baseNodes, ctrlNodes, collapse_disp, maxAnalysis_disp)  # 判断当前步是否收敛
-            collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(N_SDOFs))
-            if (ops.getTime() >= duration) or maxAna_flag or (abs(ops.getTime() - duration) < 1e-5):
-                return 1, collapse_flag, result[: 9]
-            factor *= 2
-            factor = min(factor, max_factor)
-            algorithm_id -= 1
-            algorithm_id = max(0, algorithm_id)
-        else:
-            # 当前步不收敛
-            factor *= 0.5
-            if factor < min_factor:
-                factor = min_factor
-                algorithm_id += 1
-                if algorithm_id == 4:
-                    return 2, collapse_flag, result[: 9]
-        dt = dt_init * factor
-        if dt + ops.getTime() > duration:
-            dt = duration - ops.getTime()
-        ops.algorithm(*algorithms[algorithm_id])
-
-
-def _SDR_batched_tester(
-        N_SDOFs: int,
-        base_nodes: List[int],
-        ctrl_nodes: list,
-        collapse_disp: Tuple[bool, ...],
-        maxAnalysis_disp: tuple
-        ) -> Tuple[tuple[bool], bool]:
-    """
-    return Tuple[tuple[bool], bool]: 各个SDOF是否倒塌？是否全部超过最大计算位移？
-    """
-    results_collapse = []
-    results_maxAna = []
-    for i in range(N_SDOFs):
-        if collapse_disp[i] > maxAnalysis_disp[i]:
-            raise SDOF_Error('`MaxAnalysisDrift`应大于`CollapseDrift`')
-        u = abs(ops.nodeDisp(ctrl_nodes[i], 1) - ops.nodeDisp(base_nodes[i], 1))
-        if u >= collapse_disp[i]:
-            results_collapse.append(True)
-        else:
-            results_collapse.append(False)  
-        if u >= maxAnalysis_disp[i]:
-            results_maxAna.append(True)
-        else:
-            results_maxAna.append(False)
-    return tuple(results_collapse), all(results_maxAna)
-
-
-def _get_batched_results(
-        N_SDOFs: int,
-        baseNodes: list[int],
-        ctrlNodes: list[int],
-        ctrlEles: list[int],
-        input_result: Tuple[List[float], ...],
-        ls_uy: Tuple[float] | None=None
-    ) -> Tuple[list[float], ...]:
-    """获取分析结果
-    """
-    maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, ls_u_old,\
-        ls_F_Hys_old, ls_F_Ray_old, ls_u_cent, *_ = input_result
-    ls_u = []
-    ls_F_Hys = []
-    ls_F_Ray = []
-    for i in range(N_SDOFs):
-        ctrl_node = ctrlNodes[i]
-        base_node = baseNodes[i]
-        eleTag = ctrlEles[i]
-        u_old = ls_u_old[i]
-        F_Hys_old = ls_F_Hys_old[i]
-        F_Ray_old = ls_F_Ray_old[i]
-        u_cent = ls_u_cent[i]
-        # 最大相对位移
-        u: float = ops.nodeDisp(ctrl_node, 1) - ops.nodeDisp(base_node, 1)
-        ls_u.append(u)
-        du = u - u_old
-        maxDisp[i] = max(maxDisp[i], abs(u))
-        # 最大绝对速度
-        v: float = ops.nodeVel(ctrl_node, 1)
-        maxVel[i] = max(maxVel[i], abs(v))
-        # 最大绝对加速度
-        a: float = ops.nodeAccel(ctrl_node, 1)
-        maxAccel[i] = max(maxAccel[i], abs(a))
-        # 累积弹塑性耗能
-        F_Hys: float = ops.eleResponse(eleTag, 'material', 1, 'stress')[0]
-        ls_F_Hys.append(F_Hys)
-        Si = 0.5 * (F_Hys + F_Hys_old) * du
-        Ec[i] += Si
-        # 累积Rayleigh耗能
-        F_Ray: float = ops.eleResponse(eleTag, 'rayleighForces')[0]
-        ls_F_Ray.append(F_Ray)
-        Si = -0.5 * (F_Ray + F_Ray_old) * du
-        Ev[i] += Si
-        # 最大基底反力
-        F: float = F_Ray + ops.eleForce(eleTag, 1)
-        maxReaction[i] = max(maxReaction[i], abs(F))
-        # 累积变形
-        CD[i] += abs(du)
-        # 累积塑性变形
-        if ls_uy is None:
-            CPD = None
-        else:
-            uy = ls_uy[i]
-            if u > u_cent + uy:
-                # 正向屈服
-                CPD[i] += u - (u_cent + uy)
-                u_cent += u - (u_cent + uy)
-            elif u < u_cent - uy:
-                # 负向屈服
-                CPD[i] += u_cent - uy - u
-                u_cent -= u_cent - uy - u
-            else:
-                CPD[i] += 0
-            ls_u_cent[i] = u_cent
-    return maxDisp, maxVel, maxAccel,\
-        Ec, Ev, maxReaction,\
-        CD, CPD, ls_u,\
-        ls_F_Hys, ls_F_Ray, ls_u_cent
-    # 12个参数
-
-
-# -----------------------------------------------------------------------------------
-# --------------------------------- SDOF批量求解 -------------------------------------
-# ------------------------------- （可考虑P-Delta） ----------------------------------
-# -----------------------------------------------------------------------------------
 
 def PDtSDOF_batched_solver(
         N_SDOFs: int,
@@ -587,7 +165,7 @@ def PDtSDOF_batched_solver(
         g: float=9800,
         ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
         ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,
-    ) -> Tuple[int, Tuple[bool, ...], Tuple[List[float], ...]]:
+    ) -> dict[str, bool | tuple[bool, ...] | list[float]]:
     """SDOF求解函数，每次调用可对多个SDOF在同一模型空间下进行非线性时程分析，
     可考虑P-Delta效应
 
@@ -607,21 +185,19 @@ def PDtSDOF_batched_solver(
         ls_collapse_disp (tuple[float, ...], optional): 倒塌转角判定准则，默认1e14
         ls_maxAnalysis_disp (tuple[float, ...], optional): 最大分析转角，默认1e15
 
-    Returns: Tuple[int, tuple, list[tuple]]
-        元组第一项为计算状态
-        * 1 - 分析不收敛，结构不倒塌
-        * 2 - 分析不收敛，结构倒塌\n
-        元组第二项为SDOF倒塌状态响应，倒塌为True，不倒塌为False\n
-        元组第三项为各个SDOF的结构响应，每个SDOF的响应类型依次为：
-        * 最大相对位移
-        * 最大绝对速度
-        * 最大绝对加速度
-        * 累积弹塑性耗能
-        * 累积Rayleigh阻尼耗能
-        * 最大基底反力
-        * 累积位移
-        * 累积塑性位移
-        * 残余变形
+    Returns: dict[str, bool | tuple[bool, ...] | list[float]]
+        键值对依次包括：
+        * 是否收敛，'converge': bool
+        * 是否倒塌，'collapse': tuple[bool, ...]
+        * 最大相对位移：'maxDisp': list[float]]
+        * 最大绝对速度：'maxVel': list[float]]
+        * 最大绝对加速度：'maxAccel': list[float]]
+        * 累积弹塑性耗能：'Ec': list[float]]
+        * 累积Rayleigh阻尼耗能：'Ev': list[float]]
+        * 最大基底反力：'maxReaction': list[float]]
+        * 累积位移：'CD': list[float]]
+        * 累积塑性位移：'CPD': list[float]]
+        * 残余位移：'resDisp': list[float]]
     """
     """
     模型结构示意图：
@@ -640,292 +216,755 @@ def PDtSDOF_batched_solver(
            |
      inode o (accel input)
     """
-    if not (N_SDOFs == len(ls_T) == len(ls_materials)):
-        raise SDOF_Error(f'SDOF数量、周期数量、材料数量不等！({N_SDOFs}, {len(ls_T)}, {len(ls_materials)})')
-
-    NPTS = len(gm)
-    duration = (NPTS - 1) * dt + fv_duration
-    A_rigid = 1e10
-    I_rigid = 1e10
-
-    ops.wipe()
-    ops.model('basic', '-ndm', 2, '-ndf', 3)
-    nodeTag = 1  # 当前节点编号
-    baseNodes = []  # 基底节点编号
-    midNodes = []  # 中间节点（与刚性杆下部连接的节点）编号
-    ctrlNodes = []  # 控制节点的编号
-    matTag = 1  # 当前材料编号
-    ctrlMats = []  # 控制材料的编号
-    eleTag = 1  # 当前单元编号
-    ctrlEles = []  # 控制单元的编号
-    ops.geomTransf('PDelta', 1)
-    for i in range(N_SDOFs):
-        # 节点、约束、质量
-        inode, jnode, knode = nodeTag, nodeTag + 1, nodeTag + 2
-        ops.node(inode, 0, 0)
-        ops.node(jnode, 0, h)
-        ops.node(knode, 0, h)
-        ops.fix(inode, 1, 1, 0)
-        # ops.fix(jnode, 0, 1, 1)
-        ops.fix(knode, 1, 1, 1)
-        # ops.equalDOF(inode, jnode, 1, 2)
-        ops.mass(jnode, ls_m[i], 0, 0)
-        baseNodes.append(inode)
-        ctrlNodes.append(jnode)
-        midNodes.append(knode)
-        nodeTag += 3
-        # 材料
-        material = ls_materials[i]
-        matTag_start = matTag
-        for matType, paras in material.items():
-            ops.uniaxialMaterial(matType, matTag, *paras)
-            matTag += 1
-        ops.uniaxialMaterial('Parallel', matTag, *range(matTag_start, matTag))
-        ctrlMats.append(matTag)
-        matTag += 1
-        # 单元
-        ops.element('zeroLength', eleTag, jnode, knode, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 零长度弹塑性弹簧
-        ops.element('elasticBeamColumn', eleTag + 1, inode, jnode, A_rigid, 206000, I_rigid, 1)  # 刚性梁
-        T = ls_T[i]
-        omega = 2 * pi / T
-        b = 2 * zeta / omega
-        ops.region(i + 1, '-ele', eleTag, '-rayleigh', 0, 0, b, 0)  # Rayleigh阻尼
-        ctrlEles.append(eleTag)
-        eleTag += 2
-
-    # 竖向荷载
-    ops.timeSeries('Linear', 11)
-    ops.pattern('Plain', 11, 11)
-    for i in range(N_SDOFs):
-        F = ls_grav[i]
-        if F == 0:
-            continue
-        ops.load(ctrlNodes[i], 0, -F, 0)
-
-    # 分析重力
-    ops.constraints('Transformation')
-    ops.numberer('RCM')
-    ops.system('BandGeneral')
-    ops.test('EnergyIncr', 1.0e-5, 60)
-    ops.algorithm('Newton')
-    ops.integrator('LoadControl', 0.1)
-    ops.analysis('Static')
-    ops.analyze(10)
-    ops.loadConst('-time', 0.0)
-
-    # 时程分析
-    ops.timeSeries('Path', 1, '-dt', dt, '-values', *gm, '-factor', g)
-    ops.pattern('MultipleSupport', 1)
-    ops.groundMotion(1, 'Plain', '-accel', 1)
-    for tag1, tag2 in zip(baseNodes, midNodes):
-        ops.imposedMotion(tag1, 1, 1)
-        ops.imposedMotion(tag2, 1, 1)
-    state, collapse, response = _PDtBatchedTimeHistoryAnalysis(N_SDOFs, dt, duration, baseNodes, midNodes, ctrlNodes, ctrlEles,
-                                ls_collapse_disp, ls_maxAnalysis_disp, ls_uy)
-    results = dict()
-    results['state'] = state
-    results['collapse'] = collapse
-    results['maxDisp'] = response[0]
-    results['maxVel'] = response[1]
-    results['maxAccel'] = response[2]
-    results['Ec'] = response[3]
-    results['Ev'] = response[4]
-    results['maxReaction'] = response[5]
-    results['CD'] = response[6]
-    results['CPD'] = response[7]
+    model = _PDtSDOF_batched_solver(N_SDOFs, h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
+    results = model.get_results()
     return results
-    
-
-def _PDtBatchedTimeHistoryAnalysis(
-        N_SDOFs: int,
-        dt_init: float,
-        duration: float,
-        baseNodes: list[int],
-        midNodes: list[int],
-        ctrlNodes: list[int],
-        ctrlEles: list[int],
-        ls_collapse_disp: tuple,
-        ls_maxAnalysis_disp: tuple,
-        ls_uy: tuple[float, ...],
-        min_factor: float=1e-6, max_factor: float=1
-        ) -> Tuple[int, Tuple[bool, ...], Tuple[List[float], ...]]:
-    """自适应时程分析，可根据收敛状况自动调整步长和迭代算法
-
-    Args:
-        N_SDOFs (int): SDOF的数量
-        dt_init (float): 地震动步长
-        duration (float): 地震动持时
-        base_node (tuple): 基底节点编号
-        ctrl_node (tuple): 控制节点编号
-        ls_collapse_disp (tuple[float, ...]): 倒塌判定转角
-        ls_maxAnalysis_disp (tuple[float, ...]): 最大分析的转角
-        ls_uy (tuple): 屈服转角
-        min_factor (float): 自适应步长的最小调整系数
-        max_factor (float): 自适应步长的最大调整系数
-    
-    Return: Tuple[int, tuple, list[tuple]]
-        元组第一项为计算状态
-        * 1 - 分析收敛
-        * 2 - 分析不收敛\n
-        元组第二项为SDOF倒塌状态响应，倒塌为True，不倒塌为False\n
-        元组第三项为各个SDOF的结构响应
-    """
-    result = tuple([0.0] * N_SDOFs for _ in range(100))  # 用来储存结构响应
-    algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
-    algorithm_id = 0
-    ops.wipeAnalysis()
-    ops.constraints("Transformation")
-    ops.numberer("Plain")
-    ops.system("BandGeneral")
-    ops.test("EnergyIncr", 1.0e-5, 30)
-    ops.algorithm("KrylovNewton")
-    ops.integrator("Newmark", 0.5, 0.25)
-    ops.analysis("Transient")
-
-    collapse_flag = (False,) * N_SDOFs
-    maxAna_flag = False
-    factor = 1
-    dt = dt_init
-    while True:
-        ok = ops.analyze(1, dt)
-        if ok == 0:
-            # 当前步收敛
-            result = _PDt_get_batched_results(N_SDOFs, baseNodes, midNodes, ctrlNodes, ctrlEles, result, ls_uy)  # 计算当前步结构响应
-            current_collapse_flag, maxAna_flag = _PDt_SDR_batched_tester(N_SDOFs, ctrlNodes, midNodes, ls_collapse_disp, ls_maxAnalysis_disp)  # 判断当前步是否收敛
-            collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(N_SDOFs))
-            if (ops.getTime() >= duration) or maxAna_flag or (abs(ops.getTime() - duration) < 1e-5):
-                return 1, collapse_flag, result[: 9]
-            factor *= 2
-            factor = min(factor, max_factor)
-            algorithm_id -= 1
-            algorithm_id = max(0, algorithm_id)
-        else:
-            # 当前步不收敛
-            factor *= 0.5
-            if factor < min_factor:
-                factor = min_factor
-                algorithm_id += 1
-                if algorithm_id == 4:
-                    return 2, collapse_flag, result[: 9]
-        dt = dt_init * factor
-        if dt + ops.getTime() > duration:
-            dt = duration - ops.getTime()
-        ops.algorithm(*algorithms[algorithm_id])
 
 
-def _PDt_SDR_batched_tester(
-        N_SDOFs: int,
-        ctrlNodes: List[int],
-        midNodes: List[int],
-        ls_collapse_disp: Tuple[bool, ...],
-        ls_maxAnalysis_disp: Tuple[bool, ...],
-        ) -> Tuple[tuple[bool], bool]:
-    """
-    return Tuple[tuple[bool], bool]: 各个SDOF是否倒塌？是否全部超过最大计算位移？
-    """
-    results_collapse = []
-    results_maxAna = []
-    for i in range(N_SDOFs):
-        if ls_collapse_disp[i] > ls_maxAnalysis_disp[i]:
-            raise SDOF_Error('`ls_collapse_disp`应大于`ls_maxAnalysis_disp`')
-        u = ops.nodeDisp(ctrlNodes[i], 1) - ops.nodeDisp(midNodes[i], 1)
-        if abs(u) >= ls_collapse_disp[i]:
-            results_collapse.append(True)
-        else:
-            results_collapse.append(False)  
-        if abs(u) >= ls_maxAnalysis_disp[i]:
-            results_maxAna.append(True)
-        else:
-            results_maxAna.append(False)
-    return tuple(results_collapse), all(results_maxAna)
+# ---------------------------------------------------------------------------
+# --------------------------------- 单个SDOF求解 -----------------------------
+# ---------------------------------------------------------------------------
+
+class _SDOF_solver:
+    def __init__(self,
+            T: int,
+            gm: np.ndarray,
+            dt: float,
+            materials: Dict[str, tuple],
+            uy: float=None,
+            fv_duration: float=0,
+            zeta: float=0.05,
+            m: float=1,
+            g: float=9800,
+            collapse_disp: float=1e14,
+            maxAnalysis_disp: float=1e15,):
+        self.T = T
+        self.gm = gm
+        self.dt = dt
+        self.materials = materials
+        self.uy = uy
+        self.fv_duration = fv_duration
+        self.zeta = zeta
+        self.m = m
+        self.g = g
+        self.collapse_disp = collapse_disp
+        self.maxAnalysis_disp = maxAnalysis_disp
+        self.NPTS = len(gm)
+        self.duration = (self.NPTS - 1) * dt + fv_duration
+        omega = 2 * pi / T
+        self.NPTS = len(gm)
+        self.duration = (self.NPTS - 1) * dt + fv_duration
+        self.a = 0
+        self.b = 2 * zeta / omega
+        self.run_model()
 
 
-def _PDt_get_batched_results(
-        N_SDOFs: int,
-        baseNodes: list[int],
-        midNodes: list[int],
-        ctrlNodes: list[int],
-        ctrlEles: list[int],
-        input_result: Tuple[List[float], ...],
-        ls_uy: Tuple[float] | None=None
-    ) -> Tuple[list[float], ...]:
-    """获取分析结果
-    """
-    # t.append(ops.getTime())
-    maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, ls_u_old,\
-        ls_F_Hys_old, ls_F_Ray_old, ls_u_cent, *_ = input_result
-    ls_u = []
-    ls_F_Hys = []
-    ls_F_Ray = []
-    for i in range(N_SDOFs):
-        ctrl_node = ctrlNodes[i]
-        base_node = baseNodes[i]
-        mid_node = midNodes[i]
-        eleTag = ctrlEles[i]
-        u_old = ls_u_old[i]
-        F_Hys_old = ls_F_Hys_old[i]
-        F_Ray_old = ls_F_Ray_old[i]
-        u_cent = ls_u_cent[i]
+    def run_model(self):
+        ops.wipe()
+        ops.model('basic', '-ndm', 2, '-ndf', 3)
+        ops.node(1, 0, 0)
+        ops.node(2, 0, 0)
+        ops.fix(1, 1, 1, 1)
+        ops.fix(2, 0, 1, 1)
+        ops.mass(2, self.m, 0, 0)
+        matTag = 0
+        for matType, paras in self.materials.items():
+            matTag += 1
+            ops.uniaxialMaterial(matType, matTag, *paras)
+        ops.uniaxialMaterial('Parallel', matTag + 1, *range(1, matTag + 1))
+        ops.element('zeroLength', 1, 1, 2, '-mat', matTag + 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
+        ops.region(1, '-ele', 1, '-rayleigh', self.a, 0, self.b, 0)  # Rayleigh阻尼
+        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
+        ops.pattern('MultipleSupport', 1)
+        ops.groundMotion(1, 'Plain', '-accel', 1)
+        ops.imposedMotion(1, 1, 1)
+        # 分析
+        converge, collapse, response = self.time_history_analysis()
+        results = dict()
+        results['converge'] = converge
+        results['collapse'] = collapse
+        results['maxDisp'] = response[0]
+        results['maxVel'] = response[1]
+        results['maxAccel'] = response[2]
+        results['Ec'] = response[3]
+        results['Ev'] = response[4]
+        results['maxReaction'] = response[5]
+        results['CD'] = response[6]
+        results['CPD'] = response[7]
+        results['resDisp'] = response[8]
+        self.results = results
+
+
+    def time_history_analysis(self, min_factor: float=1e-6, max_factor: float=1) -> Tuple[bool, bool, tuple]:
+        """自适应时程分析，可根据收敛状况自动调整步长和迭代算法
+
+        Args:
+            min_factor (float): 自适应步长的最小调整系数
+            max_factor (float): 自适应步长的最大调整系数
+        
+        Return: Tuple[bool, bool, tuple]
+            * (1) - 是否收敛
+            * (2) - 是否倒塌
+            * (3) - 结构响应结果
+        """
+        result = (0,) * 100  # 用来储存结构响应
+        algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
+        algorithm_id = 0
+        ops.wipeAnalysis()
+        ops.constraints("Transformation")
+        ops.numberer("Plain")
+        ops.system("BandGeneral")
+        ops.test("EnergyIncr", 1.0e-5, 30)
+        ops.algorithm("KrylovNewton")
+        ops.integrator("Newmark", 0.5, 0.25)
+        ops.analysis("Transient")
+
+        collapse_flag = False
+        maxAna_flag = False
+        factor = 1
+        dt_init = self.dt
+        dt = dt_init
+        while True:
+            ok = ops.analyze(1, dt)
+            if ok == 0:
+                # 当前步收敛
+                result = self.get_responses(result)  # 计算当前步结构响应
+                current_collapse_flag, maxAna_flag = self.SDR_tester()  # 判断当前步是否收敛
+                collapse_flag = collapse_flag or current_collapse_flag
+                if (ops.getTime() >= self.duration or (abs(ops.getTime() - self.duration) < 1e-5)) and not collapse_flag:
+                    return True, False, result[: 9]  # 分析成功，结构不倒塌
+                if ops.getTime() >= self.duration and collapse_flag:
+                    return True, True, result[: 9]  # 分析成功，结构倒塌
+                if maxAna_flag:
+                    return True, True, result[: 9]  # 分析成功，结构倒塌
+                factor *= 2
+                factor = min(factor, max_factor)
+                algorithm_id -= 1
+                algorithm_id = max(0, algorithm_id)
+            else:
+                # 当前步不收敛
+                factor *= 0.5
+                if factor < min_factor:
+                    factor = min_factor
+                    algorithm_id += 1
+                    if algorithm_id == 4 and collapse_flag:
+                        return False, True, result[: 9]
+                    if algorithm_id == 4 and not collapse_flag:
+                        return False, False, result[: 9]
+            dt = dt_init * factor
+            if dt + ops.getTime() > self.duration:
+                dt = self.duration - ops.getTime()
+            ops.algorithm(*algorithms[algorithm_id])
+
+
+    def SDR_tester(self) -> tuple[bool, bool]:
+        """
+        return (tuple[bool, bool]): 是否倒塌？是否超过最大计算位移？
+        """
+        if self.collapse_disp > self.maxAnalysis_disp:
+            raise SDOF_Error('`MaxAnalysisDrift`应大于`CollapseDrift`')
+        result = (False, False)
+        u = abs(ops.nodeDisp(2, 1) - ops.nodeDisp(1, 1))
+        if u >= self.collapse_disp:
+            result = (True, False)
+        if u >= self.maxAnalysis_disp:
+            result = (True, True)
+        return result
+
+
+    def get_responses(self, input_result: tuple[float]) -> Tuple:
+        """获取分析结果
+        """
+        # t.append(ops.getTime())
+        maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, u_old,\
+            F_Hys_old, F_Ray_old, u_cent, *_ = input_result
         # 最大相对位移
-        u: float = ops.nodeDisp(ctrl_node, 1) - ops.nodeDisp(mid_node, 1)
-        ls_u.append(u)
+        u = ops.nodeDisp(2, 1) - ops.nodeDisp(1, 1)
         du = u - u_old
-        maxDisp[i] = max(maxDisp[i], abs(u))
-        # if i == 0:
-        #     U.append(u)
+        maxDisp = max(maxDisp, abs(u))
         # 最大绝对速度
-        v: float = ops.nodeVel(ctrl_node, 1)
-        maxVel[i] = max(maxVel[i], abs(v))
-        # if i == 0:
-        #     V.append(v)
+        v = ops.nodeVel(2, 1)
+        maxVel = max(maxVel, abs(v))
         # 最大绝对加速度
-        a: float = ops.nodeAccel(ctrl_node, 1)
-        maxAccel[i] = max(maxAccel[i], abs(a))
-        if i == 0:
-            A_BASE.append(ops.nodeAccel(base_node, 1))
-            A.append(a)
+        a = ops.nodeAccel(2, 1)
+        maxAccel = max(maxAccel, abs(a))
         # 累积弹塑性耗能
-        F_Hys: float = ops.eleResponse(eleTag, 'material', 1, 'stress')[0]
-        ls_F_Hys.append(F_Hys)
+        F_Hys = ops.eleResponse(1, 'material', 1, 'stress')[0]
         Si = 0.5 * (F_Hys + F_Hys_old) * du
-        Ec[i] -= Si
-        # if i == 0:
-        #     EC.append(Ec[i])
+        Ec += Si
         # 累积Rayleigh耗能
-        F_Ray: float = ops.eleResponse(eleTag, 'rayleighForces')[0]
-        ls_F_Ray.append(F_Ray)
+        F_Ray = ops.eleResponse(1, 'rayleighForces')[0]
         Si = -0.5 * (F_Ray + F_Ray_old) * du
-        Ev[i] -= Si
-        # if i == 0:
-        #     EV.append(Ev[i])
+        Ev += Si
         # 最大基底反力
-        F: float = -(ops.eleResponse(eleTag, 'rayleighForces')[0] + ops.eleForce(eleTag, 1))
-        maxReaction[i] = max(maxReaction[i], abs(F))
-        # if i == 0:
-        #     V_BASE.append(F)
+        F = F_Ray + ops.eleForce(1, 1)
+        maxReaction = max(maxReaction, abs(F))
         # 累积变形
-        CD[i] += abs(du)
+        CD += abs(du)
         # 累积塑性变形
-        if ls_uy is None:
+        if self.uy is None:
             CPD = None
         else:
-            uy = ls_uy[i]
-            if u > u_cent + uy:
+            if u > u_cent + self.uy:
                 # 正向屈服
-                CPD[i] += u - (u_cent + uy)
-                u_cent += u - (u_cent + uy)
-            elif u < u_cent - uy:
+                CPD += u - (u_cent + self.uy)
+                u_cent += u - (u_cent + self.uy)
+            elif u < u_cent - self.uy:
                 # 负向屈服
-                CPD[i] += u_cent - uy - u
-                u_cent -= u_cent - uy - u
+                CPD += u_cent - self.uy - u
+                u_cent -= u_cent - self.uy - u
             else:
-                CPD[i] += 0
-            ls_u_cent[i] = u_cent
-    return maxDisp, maxVel, maxAccel,\
-        Ec, Ev, maxReaction,\
-        CD, CPD, ls_u,\
-        ls_F_Hys, ls_F_Ray, ls_u_cent
-    # 12个参数
+                CPD += 0
+        return maxDisp, maxVel, maxAccel,\
+            Ec, Ev, maxReaction,\
+            CD, CPD, u,\
+            F_Hys, F_Ray, u_cent
+        # 12个参数
+        
+    def get_results(self) -> dict[str, bool | float]:
+        return self.results
+
+
+# -------------------------------------------------------------------------------
+# --------------------------------- 多个SDOF批量求解 -----------------------------
+# -------------------------------------------------------------------------------
+
+class _SDOF_batched_solver:
+    def __init__(self,
+            N_SDOFs: int,
+            ls_T: tuple[float, ...],
+            gm: np.ndarray,
+            dt: float,
+            ls_materials: tuple[Dict[str, tuple], ...],
+            ls_uy: tuple[float, ...]=None,
+            fv_duration: float=0,
+            zeta: float=0.05,
+            ls_m: tuple[float, ...]=(1,)*1000000,
+            g: float=9800,
+            ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
+            ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,):
+        if not (N_SDOFs == len(ls_T) == len(ls_materials)):
+            raise SDOF_Error(f'SDOF数量、周期数量、材料数量不等！({N_SDOFs}, {len(ls_T)}, {len(ls_materials)})')
+        self.N_SDOFs = N_SDOFs
+        self.ls_T = ls_T
+        self.gm = gm
+        self.dt = dt
+        self.ls_materials = ls_materials
+        self.ls_uy = ls_uy
+        self.fv_duration = fv_duration
+        self.zeta = zeta
+        self.ls_m = ls_m
+        self.g = g
+        self.ls_collapse_disp = ls_collapse_disp
+        self.ls_maxAnalysis_disp = ls_maxAnalysis_disp
+        self.NPTS = len(gm)
+        self.duration = (self.NPTS - 1) * dt + fv_duration
+        self.NPTS = len(gm)
+        self.duration = (self.NPTS - 1) * dt + fv_duration
+        self.run_model()
+
+
+    def run_model(self):
+        ops.wipe()
+        ops.model('basic', '-ndm', 2, '-ndf', 3)
+        nodeTag = 1  # 当前节点编号
+        self.baseNodes = []  # 基底节点编号
+        self.ctrlNodes = []  # 控制节点的编号
+        matTag = 1  # 当前材料编号
+        ctrlMats = []  # 控制材料的编号
+        eleTag = 1  # 当前单元编号
+        self.ctrlEles = []  # 控制单元的编号
+        for i in range(self.N_SDOFs):
+            # 节点、约束、质量
+            ops.node(nodeTag, 0, 0)
+            ops.node(nodeTag + 1, 0, 0)
+            ops.fix(nodeTag, 1, 1, 1)
+            ops.fix(nodeTag + 1, 0, 1, 1)
+            ops.mass(nodeTag + 1, self.ls_m[i], 0, 0)
+            inode, jnode = nodeTag, nodeTag + 1
+            self.baseNodes.append(nodeTag)
+            self.ctrlNodes.append(nodeTag + 1)
+            nodeTag += 2
+            # 材料
+            material = self.ls_materials[i]
+            matTag_start = matTag
+            for matType, paras in material.items():
+                ops.uniaxialMaterial(matType, matTag, *paras)
+                matTag += 1
+            ops.uniaxialMaterial('Parallel', matTag, *range(matTag_start, matTag))
+            ctrlMats.append(matTag)
+            matTag += 1
+            # 单元
+            ops.element('zeroLength', eleTag, inode, jnode, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
+            T = self.ls_T[i]
+            omega = 2 * pi / T
+            b = 2 * self.zeta / omega
+            ops.region(i + 1, '-ele', eleTag, '-rayleigh', 0, 0, b, 0)  # Rayleigh阻尼
+            self.ctrlEles.append(eleTag)
+            eleTag += 1
+        # 时程分析
+        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
+        ops.pattern('MultipleSupport', 1)
+        ops.groundMotion(1, 'Plain', '-accel', 1)
+        for tag in self.baseNodes:
+            ops.imposedMotion(tag, 1, 1)
+        converge, collapse, response = self.time_history_analysis()
+        results = dict()
+        results['converge'] = converge
+        results['collapse'] = collapse
+        results['maxDisp'] = response[0]
+        results['maxVel'] = response[1]
+        results['maxAccel'] = response[2]
+        results['Ec'] = response[3]
+        results['Ev'] = response[4]
+        results['maxReaction'] = response[5]
+        results['CD'] = response[6]
+        results['CPD'] = response[7]
+        results['resDisp'] = response[8]
+        self.results = results
+    
+
+    def time_history_analysis(self, min_factor=1e-6, max_factor=1
+                ) -> Tuple[bool, Tuple[bool, ...], list[tuple]]:
+        """自适应时程分析，可根据收敛状况自动调整步长和迭代算法
+
+        Args:
+            min_factor (float): 自适应步长的最小调整系数
+            max_factor (float): 自适应步长的最大调整系数
+        
+        Return: Tuple[bool, Tuple[bool, ...], list[tuple]]
+            * (1) - 是否收敛
+            * (2) - 是否倒塌
+            * (3) - 结构响应结果
+        """
+        result = tuple([0.0] * self.N_SDOFs for _ in range(100))  # 用来储存结构响应
+        algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
+        algorithm_id = 0
+        ops.wipeAnalysis()
+        ops.constraints("Transformation")
+        ops.numberer("Plain")
+        ops.system("BandGeneral")
+        ops.test("EnergyIncr", 1.0e-5, 30)
+        ops.algorithm("KrylovNewton")
+        ops.integrator("Newmark", 0.5, 0.25)
+        ops.analysis("Transient")
+
+        collapse_flag = (False,) * self.N_SDOFs
+        maxAna_flag = False
+        factor = 1
+        dt_init = self.dt
+        dt = dt_init
+        while True:
+            ok = ops.analyze(1, dt)
+            if ok == 0:
+                # 当前步收敛
+                result = self.get_responses(result)  # 计算当前步结构响应
+                current_collapse_flag, maxAna_flag = self.SDR_tester()  # 判断当前步是否收敛
+                collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(self.N_SDOFs))
+                if (ops.getTime() >= self.duration) or maxAna_flag or (abs(ops.getTime() - self.duration) < 1e-5):
+                    return True, collapse_flag, result[: 9]
+                factor *= 2
+                factor = min(factor, max_factor)
+                algorithm_id -= 1
+                algorithm_id = max(0, algorithm_id)
+            else:
+                # 当前步不收敛
+                factor *= 0.5
+                if factor < min_factor:
+                    factor = min_factor
+                    algorithm_id += 1
+                    if algorithm_id == 4:
+                        return False, collapse_flag, result[: 9]
+            dt = dt_init * factor
+            if dt + ops.getTime() > self.duration:
+                dt = self.duration - ops.getTime()
+            ops.algorithm(*algorithms[algorithm_id])
+
+
+    def SDR_tester(self) -> Tuple[tuple[bool], bool]:
+        """
+        return Tuple[tuple[bool], bool]: 各个SDOF是否倒塌？是否全部超过最大计算位移？
+        """
+        results_collapse = []
+        results_maxAna = []
+        for i in range(self.N_SDOFs):
+            if self.ls_collapse_disp[i] > self.ls_maxAnalysis_disp[i]:
+                raise SDOF_Error('`MaxAnalysisDrift`应大于`CollapseDrift`')
+            u = abs(ops.nodeDisp(self.ctrlNodes[i], 1) - ops.nodeDisp(self.baseNodes[i], 1))
+            if u >= self.ls_collapse_disp[i]:
+                results_collapse.append(True)
+            else:
+                results_collapse.append(False)  
+            if u >= self.ls_maxAnalysis_disp[i]:
+                results_maxAna.append(True)
+            else:
+                results_maxAna.append(False)
+        return tuple(results_collapse), all(results_maxAna)
+
+
+    def get_responses(self, input_result: Tuple[List[float], ...]) -> Tuple[list[float], ...]:
+        """
+        获取分析结果
+        """
+        maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, ls_u_old,\
+            ls_F_Hys_old, ls_F_Ray_old, ls_u_cent, *_ = input_result
+        ls_u = []
+        ls_F_Hys = []
+        ls_F_Ray = []
+        for i in range(self.N_SDOFs):
+            ctrl_node = self.ctrlNodes[i]
+            base_node = self.baseNodes[i]
+            eleTag = self.ctrlEles[i]
+            u_old = ls_u_old[i]
+            F_Hys_old = ls_F_Hys_old[i]
+            F_Ray_old = ls_F_Ray_old[i]
+            u_cent = ls_u_cent[i]
+            # 最大相对位移
+            u: float = ops.nodeDisp(ctrl_node, 1) - ops.nodeDisp(base_node, 1)
+            ls_u.append(u)
+            du = u - u_old
+            maxDisp[i] = max(maxDisp[i], abs(u))
+            # 最大绝对速度
+            v: float = ops.nodeVel(ctrl_node, 1)
+            maxVel[i] = max(maxVel[i], abs(v))
+            # 最大绝对加速度
+            a: float = ops.nodeAccel(ctrl_node, 1)
+            maxAccel[i] = max(maxAccel[i], abs(a))
+            # 累积弹塑性耗能
+            F_Hys: float = ops.eleResponse(eleTag, 'material', 1, 'stress')[0]
+            ls_F_Hys.append(F_Hys)
+            Si = 0.5 * (F_Hys + F_Hys_old) * du
+            Ec[i] += Si
+            # 累积Rayleigh耗能
+            F_Ray: float = ops.eleResponse(eleTag, 'rayleighForces')[0]
+            ls_F_Ray.append(F_Ray)
+            Si = -0.5 * (F_Ray + F_Ray_old) * du
+            Ev[i] += Si
+            # 最大基底反力
+            F: float = F_Ray + ops.eleForce(eleTag, 1)
+            maxReaction[i] = max(maxReaction[i], abs(F))
+            # 累积变形
+            CD[i] += abs(du)
+            # 累积塑性变形
+            if self.ls_uy is None:
+                CPD = None
+            else:
+                uy = self.ls_uy[i]
+                if u > u_cent + uy:
+                    # 正向屈服
+                    CPD[i] += u - (u_cent + uy)
+                    u_cent += u - (u_cent + uy)
+                elif u < u_cent - uy:
+                    # 负向屈服
+                    CPD[i] += u_cent - uy - u
+                    u_cent -= u_cent - uy - u
+                else:
+                    CPD[i] += 0
+                ls_u_cent[i] = u_cent
+        return maxDisp, maxVel, maxAccel,\
+            Ec, Ev, maxReaction,\
+            CD, CPD, ls_u,\
+            ls_F_Hys, ls_F_Ray, ls_u_cent
+        # 12个参数
+
+
+    def get_results(self) -> dict[str, bool | tuple[bool, ...] | list[float]]:
+        return self.results
+
+
+# -----------------------------------------------------------------------------------
+# --------------------------------- SDOF批量求解 -------------------------------------
+# ------------------------------- （可考虑P-Delta） ----------------------------------
+# -----------------------------------------------------------------------------------
+
+class _PDtSDOF_batched_solver:
+    def __init__(self,
+            N_SDOFs: int,
+            h: float,
+            ls_T: tuple[float, ...],
+            ls_grav: tuple[float, ...],
+            gm: np.ndarray,
+            dt: float,
+            ls_materials: tuple[Dict[str, tuple], ...],
+            ls_uy: tuple[float, ...]=None,
+            fv_duration: float=0,
+            zeta: float=0.05,
+            ls_m: tuple[float, ...]=(1,)*1000000,
+            g: float=9800,
+            ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
+            ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,):
+        if not (N_SDOFs == len(ls_T) == len(ls_materials)):
+            raise SDOF_Error(f'SDOF数量、周期数量、材料数量不等！({N_SDOFs}, {len(ls_T)}, {len(ls_materials)})')
+        self.N_SDOFs = N_SDOFs
+        self.h = h
+        self.ls_T = ls_T
+        self.ls_grav = ls_grav
+        self.gm = gm
+        self.dt = dt
+        self.ls_materials = ls_materials
+        self.ls_uy = ls_uy
+        self.fv_duration = fv_duration
+        self.zeta = zeta
+        self.ls_m = ls_m
+        self.g = g
+        self.ls_collapse_disp = ls_collapse_disp
+        self.ls_maxAnalysis_disp = ls_maxAnalysis_disp
+        self.NPTS = len(gm)
+        self.duration = (self.NPTS - 1) * dt + fv_duration
+        self.run_model()
+
+
+    def run_model(self):
+        A_rigid = 1e10
+        I_rigid = 1e10
+        ops.wipe()
+        ops.model('basic', '-ndm', 2, '-ndf', 3)
+        nodeTag = 1  # 当前节点编号
+        self.baseNodes = []  # 基底节点编号
+        self.midNodes = []  # 中间节点（与刚性杆下部连接的节点）编号
+        self.ctrlNodes = []  # 控制节点的编号
+        matTag = 1  # 当前材料编号
+        ctrlMats = []  # 控制材料的编号
+        eleTag = 1  # 当前单元编号
+        self.ctrlEles = []  # 控制单元的编号
+        ops.geomTransf('PDelta', 1)
+        for i in range(self.N_SDOFs):
+            # 节点、约束、质量
+            inode, jnode, knode = nodeTag, nodeTag + 1, nodeTag + 2
+            ops.node(inode, 0, 0)
+            ops.node(jnode, 0, self.h)
+            ops.node(knode, 0, self.h)
+            ops.fix(inode, 1, 1, 0)
+            # ops.fix(jnode, 0, 1, 1)
+            ops.fix(knode, 1, 1, 1)
+            # ops.equalDOF(inode, jnode, 1, 2)
+            ops.mass(jnode, self.ls_m[i], 0, 0)
+            self.baseNodes.append(inode)
+            self.ctrlNodes.append(jnode)
+            self.midNodes.append(knode)
+            nodeTag += 3
+            # 材料
+            material = self.ls_materials[i]
+            matTag_start = matTag
+            for matType, paras in material.items():
+                ops.uniaxialMaterial(matType, matTag, *paras)
+                matTag += 1
+            ops.uniaxialMaterial('Parallel', matTag, *range(matTag_start, matTag))
+            ctrlMats.append(matTag)
+            matTag += 1
+            # 单元
+            ops.element('zeroLength', eleTag, jnode, knode, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 零长度弹塑性弹簧
+            ops.element('elasticBeamColumn', eleTag + 1, inode, jnode, A_rigid, 206000, I_rigid, 1)  # 刚性梁
+            T = self.ls_T[i]
+            omega = 2 * pi / T
+            b = 2 * self.zeta / omega
+            ops.region(i + 1, '-ele', eleTag, '-rayleigh', 0, 0, b, 0)  # Rayleigh阻尼
+            self.ctrlEles.append(eleTag)
+            eleTag += 2
+
+        # 竖向荷载
+        ops.timeSeries('Linear', 11)
+        ops.pattern('Plain', 11, 11)
+        for i in range(self.N_SDOFs):
+            F = self.ls_grav[i]
+            if F == 0:
+                continue
+            ops.load(self.ctrlNodes[i], 0, -F, 0)
+
+        # 分析重力
+        ops.constraints('Transformation')
+        ops.numberer('RCM')
+        ops.system('BandGeneral')
+        ops.test('EnergyIncr', 1.0e-5, 60)
+        ops.algorithm('Newton')
+        ops.integrator('LoadControl', 0.1)
+        ops.analysis('Static')
+        ops.analyze(10)
+        ops.loadConst('-time', 0.0)
+
+        # 时程分析
+        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
+        ops.pattern('MultipleSupport', 1)
+        ops.groundMotion(1, 'Plain', '-accel', 1)
+        for tag1, tag2 in zip(self.baseNodes, self.midNodes):
+            ops.imposedMotion(tag1, 1, 1)
+            ops.imposedMotion(tag2, 1, 1)
+        converge, collapse, response = self.time_history_analysis()
+        results = dict()
+        results['converge'] = converge
+        results['collapse'] = collapse
+        results['maxDisp'] = response[0]
+        results['maxVel'] = response[1]
+        results['maxAccel'] = response[2]
+        results['Ec'] = response[3]
+        results['Ev'] = response[4]
+        results['maxReaction'] = response[5]
+        results['CD'] = response[6]
+        results['CPD'] = response[7]
+        results['resDisp'] = response[8]
+        self.results = results
+    
+
+    def time_history_analysis(self, min_factor=1e-6, max_factor=1
+            ) -> Tuple[bool, Tuple[bool, ...], list[tuple]]:
+        """自适应时程分析，可根据收敛状况自动调整步长和迭代算法
+
+        Args:
+            min_factor (float): 自适应步长的最小调整系数
+            max_factor (float): 自适应步长的最大调整系数
+        
+        Return: Tuple[bool, Tuple[bool, ...], list[tuple]]
+            * (1) - 是否收敛
+            * (2) - 是否倒塌
+            * (3) - 结构响应结果
+        """
+        result = tuple([0.0] * self.N_SDOFs for _ in range(100))  # 用来储存结构响应
+        algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
+        algorithm_id = 0
+        ops.wipeAnalysis()
+        ops.constraints("Transformation")
+        ops.numberer("Plain")
+        ops.system("BandGeneral")
+        ops.test("EnergyIncr", 1.0e-5, 30)
+        ops.algorithm("KrylovNewton")
+        ops.integrator("Newmark", 0.5, 0.25)
+        ops.analysis("Transient")
+        dt_init = self.dt
+        collapse_flag = (False,) * self.N_SDOFs
+        maxAna_flag = False
+        factor = 1
+        dt = dt_init
+        while True:
+            ok = ops.analyze(1, dt)
+            if ok == 0:
+                # 当前步收敛
+                result = self.get_responses(result)  # 计算当前步结构响应
+                current_collapse_flag, maxAna_flag = self.SDR_tester()  # 判断当前步是否收敛
+                collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(self.N_SDOFs))
+                if (ops.getTime() >= self.duration) or maxAna_flag or (abs(ops.getTime() - self.duration) < 1e-5):
+                    return True, collapse_flag, result[: 9]
+                factor *= 2
+                factor = min(factor, max_factor)
+                algorithm_id -= 1
+                algorithm_id = max(0, algorithm_id)
+            else:
+                # 当前步不收敛
+                factor *= 0.5
+                if factor < min_factor:
+                    factor = min_factor
+                    algorithm_id += 1
+                    if algorithm_id == 4:
+                        return False, collapse_flag, result[: 9]
+            dt = dt_init * factor
+            if dt + ops.getTime() > self.duration:
+                dt = self.duration - ops.getTime()
+            ops.algorithm(*algorithms[algorithm_id])
+    
+
+    def SDR_tester(self):
+        """
+        return Tuple[tuple[bool], bool]: 各个SDOF是否倒塌？是否全部超过最大计算位移？
+        """
+        results_collapse = []
+        results_maxAna = []
+        for i in range(self.N_SDOFs):
+            if self.ls_collapse_disp[i] > self.ls_maxAnalysis_disp[i]:
+                raise SDOF_Error('`ls_collapse_disp`应大于`ls_maxAnalysis_disp`')
+            u = ops.nodeDisp(self.ctrlNodes[i], 1) - ops.nodeDisp(self.midNodes[i], 1)
+            if abs(u) >= self.ls_collapse_disp[i]:
+                results_collapse.append(True)
+            else:
+                results_collapse.append(False)  
+            if abs(u) >= self.ls_maxAnalysis_disp[i]:
+                results_maxAna.append(True)
+            else:
+                results_maxAna.append(False)
+        return tuple(results_collapse), all(results_maxAna)
+
+
+    def get_responses(self, input_result: Tuple[List[float], ...]) -> Tuple[list[float], ...]:
+        """
+        获取分析结果
+        """
+        # t.append(ops.getTime())
+        maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, ls_u_old,\
+            ls_F_Hys_old, ls_F_Ray_old, ls_u_cent, *_ = input_result
+        ls_u = []
+        ls_F_Hys = []
+        ls_F_Ray = []
+        for i in range(self.N_SDOFs):
+            ctrl_node = self.ctrlNodes[i]
+            base_node = self.baseNodes[i]
+            mid_node = self.midNodes[i]
+            eleTag = self.ctrlEles[i]
+            u_old = ls_u_old[i]
+            F_Hys_old = ls_F_Hys_old[i]
+            F_Ray_old = ls_F_Ray_old[i]
+            u_cent = ls_u_cent[i]
+            # 最大相对位移
+            u: float = ops.nodeDisp(ctrl_node, 1) - ops.nodeDisp(mid_node, 1)
+            ls_u.append(u)
+            du = u - u_old
+            maxDisp[i] = max(maxDisp[i], abs(u))
+            # if i == 0:
+            #     U.append(u)
+            # 最大绝对速度
+            v: float = ops.nodeVel(ctrl_node, 1)
+            maxVel[i] = max(maxVel[i], abs(v))
+            # if i == 0:
+            #     V.append(v)
+            # 最大绝对加速度
+            a: float = ops.nodeAccel(ctrl_node, 1)
+            maxAccel[i] = max(maxAccel[i], abs(a))
+            if i == 0:
+                A_BASE.append(ops.nodeAccel(base_node, 1))
+                A.append(a)
+            # 累积弹塑性耗能
+            F_Hys: float = ops.eleResponse(eleTag, 'material', 1, 'stress')[0]
+            ls_F_Hys.append(F_Hys)
+            Si = 0.5 * (F_Hys + F_Hys_old) * du
+            Ec[i] -= Si
+            # if i == 0:
+            #     EC.append(Ec[i])
+            # 累积Rayleigh耗能
+            F_Ray: float = ops.eleResponse(eleTag, 'rayleighForces')[0]
+            ls_F_Ray.append(F_Ray)
+            Si = -0.5 * (F_Ray + F_Ray_old) * du
+            Ev[i] -= Si
+            # if i == 0:
+            #     EV.append(Ev[i])
+            # 最大基底反力
+            F: float = -(ops.eleResponse(eleTag, 'rayleighForces')[0] + ops.eleForce(eleTag, 1))
+            maxReaction[i] = max(maxReaction[i], abs(F))
+            # if i == 0:
+            #     V_BASE.append(F)
+            # 累积变形
+            CD[i] += abs(du)
+            # 累积塑性变形
+            if self.ls_uy is None:
+                CPD = None
+            else:
+                uy = self.ls_uy[i]
+                if u > u_cent + uy:
+                    # 正向屈服
+                    CPD[i] += u - (u_cent + uy)
+                    u_cent += u - (u_cent + uy)
+                elif u < u_cent - uy:
+                    # 负向屈服
+                    CPD[i] += u_cent - uy - u
+                    u_cent -= u_cent - uy - u
+                else:
+                    CPD[i] += 0
+                ls_u_cent[i] = u_cent
+        return maxDisp, maxVel, maxAccel,\
+            Ec, Ev, maxReaction,\
+            CD, CPD, ls_u,\
+            ls_F_Hys, ls_F_Ray, ls_u_cent
+        # 12个参数
+
+
+    def get_results(self) -> dict[str, bool | tuple[bool, ...] | list[float]]:
+        return self.results
 
 
 
@@ -940,12 +979,12 @@ if __name__ == "__main__":
     PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
     material = {'Steel01': (200, 100, 0.02)}
     with SDOF_Helper(suppress=False):
-        results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
+        # results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
 
         # for i in range(3):
         #     results = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
 
-        # results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
+        results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
     print(results)
     # print(state)
     # print(result[8][0])
