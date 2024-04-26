@@ -37,6 +37,7 @@ if __name__ == "__main__":
     V_BASE = []
     F_RAY = []
     F_ELE = []
+    TEMP = [0]
 
 # ---------------------------------------------------------------------------
 # --------------------------------- 单个SDOF求解 -----------------------------
@@ -114,11 +115,19 @@ def SDOF_solver(
     ops.groundMotion(1, 'Plain', '-accel', 1)
     ops.imposedMotion(1, 1, 1)
     # ops.recorder('Node', '-file', 'd.out',  '-node', 2, '-dof', 1, 'disp')
-    state, result = _TimeHistoryAnalysis(dt, duration, 2, collapse_disp, maxAnalysis_disp, uy)
+    state, response = _TimeHistoryAnalysis(dt, duration, 2, collapse_disp, maxAnalysis_disp, uy)
     # 分析
-    return state, result
-
-
+    results = dict()
+    results['state'] = state
+    results['maxDisp'] = response[0]
+    results['maxVel'] = response[1]
+    results['maxAccel'] = response[2]
+    results['Ec'] = response[3]
+    results['Ev'] = response[4]
+    results['maxReaction'] = response[5]
+    results['CD'] = response[6]
+    results['CPD'] = response[7]
+    return results
 
 def _TimeHistoryAnalysis(
         dt_init: float,
@@ -168,7 +177,8 @@ def _TimeHistoryAnalysis(
         if ok == 0:
             # 当前步收敛
             result = _get_result(ctrl_node, 1, result, uy)  # 计算当前步结构响应
-            collapse_flag, maxAna_flag = _SDR_tester(ctrl_node, collapse_disp, maxAnalysis_disp)  # 判断当前步是否收敛
+            current_collapse_flag, maxAna_flag = _SDR_tester(ctrl_node, collapse_disp, maxAnalysis_disp)  # 判断当前步是否收敛
+            collapse_flag = collapse_flag or current_collapse_flag
             if (ops.getTime() >= duration or (abs(ops.getTime() - duration) < 1e-5)) and not collapse_flag:
                 return 1, result[: 9]  # 分析成功，结构不倒塌
             if ops.getTime() >= duration and collapse_flag:
@@ -366,9 +376,20 @@ def SDOF_batched_solver(
     ops.groundMotion(1, 'Plain', '-accel', 1)
     for tag in baseNodes:
         ops.imposedMotion(tag, 1, 1)
-    state, collapse, result = _batchedTimeHistoryAnalysis(N_SDOFs, dt, duration, baseNodes, ctrlNodes, ctrlEles,
+    state, collapse, response = _batchedTimeHistoryAnalysis(N_SDOFs, dt, duration, baseNodes, ctrlNodes, ctrlEles,
                                 ls_collapse_disp, ls_maxAnalysis_disp, ls_uy)
-    return state, collapse, result
+    results = dict()
+    results['state'] = state
+    results['collapse'] = collapse
+    results['maxDisp'] = response[0]
+    results['maxVel'] = response[1]
+    results['maxAccel'] = response[2]
+    results['Ec'] = response[3]
+    results['Ev'] = response[4]
+    results['maxReaction'] = response[5]
+    results['CD'] = response[6]
+    results['CPD'] = response[7]
+    return results
     
 
 def _batchedTimeHistoryAnalysis(
@@ -425,7 +446,8 @@ def _batchedTimeHistoryAnalysis(
         if ok == 0:
             # 当前步收敛
             result = _get_batched_results(N_SDOFs, baseNodes, ctrlNodes, ctrlEles, result, ls_uy)  # 计算当前步结构响应
-            collapse_flag, maxAna_flag = _SDR_batched_tester(N_SDOFs, baseNodes, ctrlNodes, collapse_disp, maxAnalysis_disp)  # 判断当前步是否收敛
+            current_collapse_flag, maxAna_flag = _SDR_batched_tester(N_SDOFs, baseNodes, ctrlNodes, collapse_disp, maxAnalysis_disp)  # 判断当前步是否收敛
+            collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(N_SDOFs))
             if (ops.getTime() >= duration) or maxAna_flag or (abs(ops.getTime() - duration) < 1e-5):
                 return 1, collapse_flag, result[: 9]
             factor *= 2
@@ -698,9 +720,20 @@ def PDtSDOF_batched_solver(
     for tag1, tag2 in zip(baseNodes, midNodes):
         ops.imposedMotion(tag1, 1, 1)
         ops.imposedMotion(tag2, 1, 1)
-    state, collapse, result = _PDtBatchedTimeHistoryAnalysis(N_SDOFs, dt, duration, baseNodes, midNodes, ctrlNodes, ctrlEles,
+    state, collapse, response = _PDtBatchedTimeHistoryAnalysis(N_SDOFs, dt, duration, baseNodes, midNodes, ctrlNodes, ctrlEles,
                                 ls_collapse_disp, ls_maxAnalysis_disp, ls_uy)
-    return state, collapse, result
+    results = dict()
+    results['state'] = state
+    results['collapse'] = collapse
+    results['maxDisp'] = response[0]
+    results['maxVel'] = response[1]
+    results['maxAccel'] = response[2]
+    results['Ec'] = response[3]
+    results['Ev'] = response[4]
+    results['maxReaction'] = response[5]
+    results['CD'] = response[6]
+    results['CPD'] = response[7]
+    return results
     
 
 def _PDtBatchedTimeHistoryAnalysis(
@@ -758,7 +791,8 @@ def _PDtBatchedTimeHistoryAnalysis(
         if ok == 0:
             # 当前步收敛
             result = _PDt_get_batched_results(N_SDOFs, baseNodes, midNodes, ctrlNodes, ctrlEles, result, ls_uy)  # 计算当前步结构响应
-            collapse_flag, maxAna_flag = _PDt_SDR_batched_tester(N_SDOFs, ctrlNodes, midNodes, ls_collapse_disp, ls_maxAnalysis_disp)  # 判断当前步是否收敛
+            current_collapse_flag, maxAna_flag = _PDt_SDR_batched_tester(N_SDOFs, ctrlNodes, midNodes, ls_collapse_disp, ls_maxAnalysis_disp)  # 判断当前步是否收敛
+            collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(N_SDOFs))
             if (ops.getTime() >= duration) or maxAna_flag or (abs(ops.getTime() - duration) < 1e-5):
                 return 1, collapse_flag, result[: 9]
             factor *= 2
@@ -896,27 +930,28 @@ def _PDt_get_batched_results(
 
 
 if __name__ == "__main__":
-    ls_T = tuple(0.62831853 for _ in range(100))
+    ls_T = tuple(0.62831853 for _ in range(2))
     T = 0.62831853
     h = 1000
-    ls_grav = (0,) * 100
-    gm = np.loadtxt(r'F:\NRSA\Input\GMs\th1.th')
+    ls_grav = (0,) * 2
+    gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
     dt = 0.01
-    materials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(100))
-    PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(100))
+    materials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
+    PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
     material = {'Steel01': (200, 100, 0.02)}
     with SDOF_Helper(suppress=False):
-        # state, collapse, result = SDOF_batched_solver(100, ls_T, gm, dt, materials, [2]*100)
+        results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
 
-        # for i in range(100):
-        #     state, result = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
+        # for i in range(3):
+        #     results = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
 
-        state, collapse, result = PDtSDOF_batched_solver(100, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*100, fv_duration=0)
+        # results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
+    print(results)
     # print(state)
     # print(result[8][0])
-    plt.plot(t, A)
-    plt.show()
-    np.savetxt(r'F:\NRSA\temp\t.txt', t)
-    np.savetxt(r'F:\NRSA\temp\A.txt', A)
+    # plt.plot(t, A)
+    # plt.show()
+    # np.savetxt(r'F:\NRSA\temp\t.txt', t)
+    # np.savetxt(r'F:\NRSA\temp\A.txt', A)
 
 
