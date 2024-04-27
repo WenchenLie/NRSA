@@ -916,9 +916,9 @@ class _PDtSDOF_batched_solver:
             # 最大绝对加速度
             a: float = ops.nodeAccel(ctrl_node, 1)
             maxAccel[i] = max(maxAccel[i], abs(a))
-            if i == 0:
-                A_BASE.append(ops.nodeAccel(base_node, 1))
-                A.append(a)
+            # if i == 0:
+            #     A_BASE.append(ops.nodeAccel(base_node, 1))
+            #     A.append(a)
             # 累积弹塑性耗能
             F_Hys: float = ops.eleResponse(eleTag, 'material', 1, 'stress')[0]
             ls_F_Hys.append(F_Hys)
