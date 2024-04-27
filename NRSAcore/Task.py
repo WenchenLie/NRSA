@@ -10,7 +10,7 @@ if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 from NRSAcore.ModelParameter import ModelParameter
 from NRSAcore.Spectrum import Spectrum
-from utils.utils import SDOF_Error
+from utils.utils import Task_Error
 from utils import utils
 
 
@@ -34,6 +34,7 @@ class Task:
     def __init__(self):
         self.logger = logger
         utils.creat_folder(self.dir_temp, 'overwrite')
+        self.paras: dict[str, tuple[list, bool]] = {}  # 所有用到的模型参数
         self.GM_N = 0
         self.GM_names = []  # 地震动名
         self.GM_dts = []  # 地震动步长
@@ -52,52 +53,54 @@ class Task:
         }  # 任务信息，记录了所有SDOF模型的建模信息
 
 
-    def set_model(self, T: ModelParameter, m: ModelParameter, zeta: ModelParameter=None, P: ModelParameter=None):
+    def add_parameters(self, name: str, value: int | float | list | np.ndarray, is_independent: bool):
+        """设置模型参数
+
+        Args:
+            name (str): 模型参数名
+            value (int | float | list | np.ndarray): 参数值
+            is_independent (bool): 是否是独立参数
+        """
+        if not isinstance(value, (int, float, list, np.ndarray)):
+            raise Task_Error(f'参数值只能为int, float, list, np.ndarray类型之一（{type(value)}）')
+        if name in self.paras:
+            self.logger.warning(f'参数 {name} 已存在，将覆盖')
+        if isinstance(value, (int, float)):
+            value = [value]
+        elif isinstance(value, np.ndarray):
+            value = value.tolist()
+        self.paras[name] = (value, is_independent)
+        self.task_info['para_name'].append(name)
+        self.task_info['para_values'][name] = value
+        if is_independent:
+            self.task_info['independent_para'].append(name)
+            
+
+    def set_model(self,
+            T: str,
+            m: str,
+            zeta: str,
+            P: str):
         """设置模型基本参数，包括周期、质量、阻尼比。
         注：周期和质量不是互为独立变量，当周期和质量的数量大于1时，二者数量应相同
 
         Args:
-            T (ModelParameter): 周期
-            m (ModelParameter): 质量
-            zeta (ModelParameter, optional): 阻尼比，默认None，即取0.05
-            P (ModelParameter, optional): 结构重力，默认None，即取0
+            T (str): 周期
+            m (str): 质量
+            zeta (str): 阻尼比
+            P (str): 结构重力
         """
-        if zeta is None:
-            zeta = ModelParameter('zeta', 0.05)
-        if P is None:
-            P = ModelParameter('P', 0)
-        if not isinstance(T, ModelParameter):
-            raise SDOF_Error('`T`应为ModelParameter类型')
-        if not isinstance(m, ModelParameter):
-            raise SDOF_Error('`m`应为ModelParameter类型')
-        if not isinstance(zeta, ModelParameter):
-            raise SDOF_Error('`zeta`应为ModelParameter类型')
-        if not isinstance(P, ModelParameter):
-            raise SDOF_Error('`P`应为ModelParameter类型')
-        if len(T) > 1 and len(m) > 1:
-            if not len(T) != len(m):
-                raise SDOF_Error('当同时设置多个`T`和`m`时二者数量应相同！')
-        self.task_info['para_name'].append('T')
-        self.task_info['para_name'].append('m')
-        self.task_info['para_name'].append('zeta')
-        self.task_info['para_name'].append('P')
-        self.task_info['independent_para'].append('zeta')
-        self.task_info['independent_para'].append('P')
-        self.task_info['para_values']['T'] = T.to_list()
-        self.task_info['para_values']['m'] = m.to_list()
-        self.task_info['para_values']['zeta'] = zeta.to_list()
-        self.task_info['para_values']['P'] = P.to_list()
-        self.T = T
-        self.m = m
-        self.zeta = zeta
+        self.T = self.paras[T][0]
+        self.m = self.paras[T][0]
+        self.zeta = self.paras[zeta][0]
         self.logger.success(f'已定义结构周期与质量，共 {len(T)} 种')
 
 
-    def set_materials(self, materials: dict[str, tuple[str | float | ModelParameter]]):
+    def set_materials(self, materials: dict[str, tuple[str | int, float, list, np.ndarray]]):
         """设置模型材料
 
         Args:
-            materials (dict[str, tuple[str  |  float  |  ModelParameter]]): _description_
+            materials (dict[str, tuple[str | int, float, list, np.ndarray]]): 材料定义格式（不包括材料编号）
 
         Examples:
             >>> mat = {
@@ -111,15 +114,12 @@ class Task:
         for matType, paras in materials.items():
             paras_ = []
             for para in paras:
-                if isinstance(para, ModelParameter):
-                    paras_.append(para.name)
-                    self.task_info['para_name'].append(para.name)
-                    self.task_info['para_values'][para.name] = para.to_list()
-                    self.task_info['independent_para'].append(para.name)
+                if para in self.paras.keys():
+                    # 该参数属于模型参数
+                    paras_.append('$$$' + para)
                 else:
                     paras_.append(para)
             self.task_info['material_format'][matType] = paras_
-        self.materials = materials
 
 
     def select_ground_motions(self, GMs: list[str], suffix: str='.txt'):
@@ -285,7 +285,7 @@ class Task:
                 SF = Sa_target / Sa_gm_avg
             else:
                 self.logger.error('"method"参数错误！')
-                raise SDOF_Error('"method"参数错误！')
+                raise Task_Error('"method"参数错误！')
             self.scaled_GM_RSA[idx] = RSA * SF
             self.scaled_GM_RSV[idx] = RSV * SF
             self.scaled_GM_RSD[idx] = RSD * SF
@@ -404,18 +404,18 @@ class Task:
         self.scaling_finished = True
 
 
-    def set_dependent_para(self, dependent: ModelParameter, independent: ModelParameter):
-        """设置从属参数
+    def link_dependent_para(self, dependent: str, independent: str):
+        """设置从属参数关系（每个从属参数都依赖于一个独立参数）
 
         Args:
-            dependent (ModelParameter): 从属参数
-            independent (ModelParameter): 从属参数所依赖的独立参数
+            dependent (str): 从属参数
+            independent (str): 从属参数所依赖的独立参数
         """
-        self.task_info['para_name'].append(dependent.name)
-        self.task_info['para_values'][dependent.name] = dependent.to_list()
-        self.task_info['dependent_para'][dependent.name] = independent.name
-        if dependent.name in self.task_info['independent_para']:
-            self.task_info['independent_para'].remove(dependent.name)
+        if not dependent in self.paras.keys():
+            raise Task_Error(f'参数 {dependent} 未定义')
+        if not independent in self.paras.keys():
+            raise Task_Error(f'参数 {independent} 未定义')
+        self.task_info['dependent_para'][dependent] = independent
 
 
     def generate_models(self, dir_path: Path | str=None, file_name: str=None) -> dict:
@@ -428,6 +428,9 @@ class Task:
         Returns:
             dict: 保护计算任务信息的字典
         """
+        para_unkonw_independent = set(self.task_info['para_name']) - set(self.task_info['independent_para']) - set(self.task_info['dependent_para'].keys())
+        if para_unkonw_independent != set():
+            raise Task_Error(f'以下参数未指派是否为独立参数：{para_unkonw_independent}')
         ls = []
         for ind_para in self.task_info['independent_para']:
             ls.append(self.task_info['para_values'][ind_para])
@@ -447,27 +450,39 @@ class Task:
 if __name__ == "__main__":
 
     g = 9810
-    m = ModelParameter('m', 1)
-    T = ModelParameter('T', np.arange(0.2, 2.2, 0.2))
-    Cy = ModelParameter('Cy', [0.4, 0.8, 1.2])
-    Fy = ModelParameter('Fy', Cy * m * g)
-    alpha = ModelParameter('alpha', [0, 0.05, 0.1])
-    k = ModelParameter('k', 4 * pi**2 / T**2 * m)
-    P_norm = ModelParameter('P_norm', 0.8)
-    P = ModelParameter('P', P_norm * m * g)
+    m = 1
+    T = np.arange(0.2, 2.2, 0.2)
+    Cy = np.array([0.4, 0.8, 1.2])
+    Fy = Cy * m * g
+    alpha = [0, 0.05, 0.1]
+    k = 4 * pi**2 / T**2 * m
+    P_norm = 0.8
+    P = P_norm * m * g
+    zeta = 0.05
     material = {
-        'Steel01': (Fy, k, alpha)
+        'Steel01': ('Fy', 'k', 'alpha')
     }  # 填多个材料可自动并联
 
     task = Task()
-    task.set_model(T=T, m=m)
+    task.add_parameters('m', m, False)
+    task.add_parameters('T', T, False)
+    task.add_parameters('Cy', Cy, False)
+    task.add_parameters('Fy', Fy, True)
+    task.add_parameters('alpha', alpha, True)
+    task.add_parameters('k', k, True)
+    task.add_parameters('P_norm', P_norm, False)
+    task.add_parameters('P', P, False)
+    task.add_parameters('zeta', zeta, True)
+
+    task.set_model('T', 'm', 'zeta', 'P')
     task.set_materials(material)
     task.select_ground_motions([f'th{i}'for i in range(1, 8)], '.th')
     task.scale_ground_motions('j', (1, 2, 2), plot=False)
-    task.set_dependent_para(T, k)
-    task.set_dependent_para(m, k)
-    task.set_dependent_para(Cy, Fy)
-    task.set_dependent_para(P_norm, P)
+    task.link_dependent_para('T', 'k')
+    task.link_dependent_para('m', 'k')
+    task.link_dependent_para('Cy', 'Fy')
+    task.link_dependent_para('P_norm', 'P')
+    task.link_dependent_para('P', 'm')
     task.generate_models(r'C:\Users\Admin\Desktop\NRSA\temp', 'model')
     
 

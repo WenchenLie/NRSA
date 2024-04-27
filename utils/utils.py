@@ -23,7 +23,6 @@ def creat_folder(
         bool: True — Go on, False - Quit.
     """
     path = Path(path)
-    print(path.absolute())
     if not path.exists():
         os.makedirs(path)
     else:
@@ -70,6 +69,18 @@ def generate_period_series(Ta: float, Tb: float, dT: float=None, num: int=None) 
 
 class SDOF_Error(Exception):
     def __init__(self, message="SDOF_Error"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class Task_Error(Exception):
+    def __init__(self, message="Task_Error"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class ModelParameter_Error(Exception):
+    def __init__(self, message="ModelParameter_Error"):
         self.message = message
         super().__init__(self.message)
 

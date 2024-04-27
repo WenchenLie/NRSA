@@ -991,12 +991,12 @@ if __name__ == "__main__":
     PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
     material = {'Steel01': (200, 100, 0.02)}
     with SDOF_Helper(suppress=False):
-        results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
+        # results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
 
         # for i in range(3):
         #     results = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
 
-        # results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
+        results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
     print(results)
     # print(state)
     # print(result[8][0])
