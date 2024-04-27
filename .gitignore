@@ -163,3 +163,4 @@ cython_debug/
 Verification/
 test.tcl
 test.py
+/__pycache__
