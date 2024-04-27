@@ -32,6 +32,18 @@ class ModelParameter(np.ndarray):
         self.name = getattr(obj, 'name', None)
         self.value = getattr(obj, 'value', None)
 
+    def __len__(self) -> int:
+        if isinstance(self.value, (float, int)):
+            return 1
+        else:
+            return super().__len__()
+        
+    def to_list(self) -> list:
+        if len(self) == 1:
+            return [self.value]
+        else:
+            return list(self.value)
+
     def info(self):
         return f'{self.name}: {self}'
     
@@ -46,9 +58,9 @@ class ModelParameter(np.ndarray):
 if __name__ == "__main__":
     Fy = ModelParameter('Fy', [3, 4, 9])
     Fy1 = ModelParameter('Fy4', [3, 4, 5])
-    Fy1 = ModelParameter('Fy5', [1, 1])
+    Fy1 = ModelParameter('Fy5', 1)
     # ModelParameters.print_var()
-    print(ModelParameter.combination_num)
+    print(list(Fy1))
     # a = np.array(1)
     # print(len(a))
 

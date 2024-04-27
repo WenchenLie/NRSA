@@ -106,7 +106,18 @@ class SDOF_Helper:
             self.t_end = time.time()
             elapsed_time = self.t_end - self.t_start
             print(f'Run time: {elapsed_time:.4f} s')
-            
+
+
+def gradient_descent(a, b, init_SF, learning_rate, num_iterations):
+    """梯度下降法
+    """
+    f = init_SF
+    for _ in range(num_iterations):
+        error = a * f - b
+        gradient = 2 * np.dot(error, a) / len(a)
+        f -= learning_rate * gradient
+    return f        
+
 
 if __name__ == "__main__":
     T = generate_period_series(0.1, 1, 0.02)
