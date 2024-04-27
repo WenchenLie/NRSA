@@ -108,6 +108,7 @@ def SDOF_batched_solver(
         ls_materials: tuple[Dict[str, tuple], ...],
         ls_uy: tuple[float, ...]=None,
         fv_duration: float=0,
+        SF: tuple=(1,)*1000000,
         zeta: float=0.05,
         ls_m: tuple[float, ...]=(1,)*1000000,
         g: float=9800,
@@ -125,6 +126,7 @@ def SDOF_batched_solver(
         ls_materials (tuple[Dict[str, tuple], ...]): 材料属性，包括材料名和参数（不包括编号）
         ls_uy (tuple[float, ...], optional): 屈服位移，仅用于计算累积塑性应变，默认None即计算值为None
         fv_duration (float, optional): 自由振动时长，默认为0
+        SF (tuple, optional): 地震动放大系数，默认None，即不额外进行缩放
         zeta (float, optional): 阻尼比，默认0.05
         ls_m (tuple[float, ...], optional): 质量，默认1
         g (float, optional): 重力加速度，默认9800
@@ -145,7 +147,7 @@ def SDOF_batched_solver(
         * 累积塑性位移：'CPD': list[float]]
         * 残余位移：'resDisp': list[float]]
     """
-    model = _SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
+    model = _SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, SF, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
     results = model.get_results()
     return results
 
@@ -160,6 +162,7 @@ def PDtSDOF_batched_solver(
         ls_materials: tuple[Dict[str, tuple], ...],
         ls_uy: tuple[float, ...]=None,
         fv_duration: float=0,
+        SF: tuple=(1,)*1000000,
         zeta: float=0.05,
         ls_m: tuple[float, ...]=(1,)*1000000,
         g: float=9800,
@@ -179,6 +182,7 @@ def PDtSDOF_batched_solver(
         ls_materials (tuple[Dict[str, tuple], ...]): 材料属性(弯矩-转角关系)，包括材料名和参数（不包括编号）
         uy (tuple[float, ...], optional): 屈服转角，仅用于计算累积塑性应变，默认None即计算值为None
         fv_duration (float, optional): 自由振动时长，默认为0
+        SF (tuple, optional): 地震动放大系数，默认None，即不额外进行缩放
         zeta (float, optional): 阻尼比，默认0.05
         ls_m (tuple[float, ...], optional): 质量，默认1
         g (float, optional): 重力加速度，默认9800
@@ -216,7 +220,7 @@ def PDtSDOF_batched_solver(
            |
      inode o (accel input)
     """
-    model = _PDtSDOF_batched_solver(N_SDOFs, h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
+    model = _PDtSDOF_batched_solver(N_SDOFs, h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, SF, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
     results = model.get_results()
     return results
 
@@ -438,6 +442,7 @@ class _SDOF_batched_solver:
             ls_materials: tuple[Dict[str, tuple], ...],
             ls_uy: tuple[float, ...]=None,
             fv_duration: float=0,
+            SF: tuple=(1,)*1000000,
             zeta: float=0.05,
             ls_m: tuple[float, ...]=(1,)*1000000,
             g: float=9800,
@@ -452,6 +457,7 @@ class _SDOF_batched_solver:
         self.ls_materials = ls_materials
         self.ls_uy = ls_uy
         self.fv_duration = fv_duration
+        self.SF = SF
         self.zeta = zeta
         self.ls_m = ls_m
         self.g = g
@@ -505,9 +511,11 @@ class _SDOF_batched_solver:
         # 时程分析
         ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
         ops.pattern('MultipleSupport', 1)
-        ops.groundMotion(1, 'Plain', '-accel', 1)
+        gmTag = 1
         for tag in self.baseNodes:
-            ops.imposedMotion(tag, 1, 1)
+            ops.groundMotion(gmTag, 'Plain', '-accel', 1, '-fact', self.SF[gmTag - 1])
+            ops.imposedMotion(tag, 1, gmTag)
+            gmTag += 1
         converge, collapse, response = self.time_history_analysis()
         results = dict()
         results['converge'] = converge
@@ -688,6 +696,7 @@ class _PDtSDOF_batched_solver:
             ls_materials: tuple[Dict[str, tuple], ...],
             ls_uy: tuple[float, ...]=None,
             fv_duration: float=0,
+            SF: tuple=(1,)*1000000,
             zeta: float=0.05,
             ls_m: tuple[float, ...]=(1,)*1000000,
             g: float=9800,
@@ -704,6 +713,7 @@ class _PDtSDOF_batched_solver:
         self.ls_materials = ls_materials
         self.ls_uy = ls_uy
         self.fv_duration = fv_duration
+        self.SF = SF
         self.zeta = zeta
         self.ls_m = ls_m
         self.g = g
@@ -785,10 +795,12 @@ class _PDtSDOF_batched_solver:
         # 时程分析
         ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
         ops.pattern('MultipleSupport', 1)
-        ops.groundMotion(1, 'Plain', '-accel', 1)
+        gmTag = 1
         for tag1, tag2 in zip(self.baseNodes, self.midNodes):
-            ops.imposedMotion(tag1, 1, 1)
-            ops.imposedMotion(tag2, 1, 1)
+            ops.groundMotion(gmTag, 'Plain', '-accel', 1, '-fact', self.SF[gmTag - 1])
+            ops.imposedMotion(tag1, 1, gmTag)
+            ops.imposedMotion(tag2, 1, gmTag)
+            gmTag += 1
         converge, collapse, response = self.time_history_analysis()
         results = dict()
         results['converge'] = converge
@@ -979,12 +991,12 @@ if __name__ == "__main__":
     PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
     material = {'Steel01': (200, 100, 0.02)}
     with SDOF_Helper(suppress=False):
-        # results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
+        results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
 
         # for i in range(3):
         #     results = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
 
-        results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
+        # results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
     print(results)
     # print(state)
     # print(result[8][0])
