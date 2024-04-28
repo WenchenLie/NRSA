@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from math import pi
 from pathlib import Path
+from typing import Literal, Callable
 from loguru import logger
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
@@ -23,7 +24,17 @@ logger.add(
 
 
 class Task:
-    """生成SDOF分析任务
+    """
+    生成SDOF分析任务  
+    关键实例属性：  
+    (1) self.paras = {参数名: (参数值, 参数类型)}  
+    参数名: str  
+    参数值：int | float | list  
+    参数类型: Literal[1, 2, 3], 1-常数型, 2-独立参数, 3-从属参数  
+    (2) self.task_info, 用于生成json文件的记录所有SDOF模型信息的字典  
+    (3) self.independent_paras = list[str], 所有独立参数的参数名  
+    (4) self.dependent_paras = dict[参数名, list[映射函数, *独立参数名]]  
+    (5) self.constant_paras = list[str], 所有常数型参数的参数名  
     """
     dir_main = Path(__file__).parent.parent
     dir_temp = dir_main / 'temp'
@@ -33,67 +44,140 @@ class Task:
 
     def __init__(self):
         self.logger = logger
+        self.logger.success('欢迎使用非线性反应谱分析程序')
         utils.creat_folder(self.dir_temp, 'overwrite')
-        self.paras: dict[str, tuple[list, bool]] = {}  # 所有用到的模型参数
+        # 所有用到的模型参数（1-常数，2-独立参数，3-从属参数）
+        self.paras: dict[str, tuple[int | float | list, Literal[1, 2, 3]]] = {}
         self.GM_N = 0
         self.GM_names = []  # 地震动名
         self.GM_dts = []  # 地震动步长
         self.GM_SF = []  # 缩放系数
+        self.independent_paras = []  # 独立参数
+        self.dependent_paras: dict[str, list[Callable, str]] = {}  # 从属参数
+        self.constant_paras = []  # 常数型参数
         self.task_info = {
-            'para_name': [],  # 参数名称
-            'independent_para': [],  # 独立参数
-            'dependent_para': {},  # 从属参数
-            'para_values': {},  # 参数范围
+            'para_name': [],  # 所有参数的名称
+            'para_values': {},  # 所有参数的值 {参数名: 参数值}
+            'constant': [],  # 常数型参数名
+            'independent_para': [],  # 独立参数名
+            'dependent_para': [],  # 从属参数名
             'material_format': {},  # 材料格式
+            'basic_para': {
+                'period': None,  # 周期
+                'damping': None,  # 阻尼
+                'mass': None,  # 质量
+                'gravity': None,  # 竖向荷载（可选）
+                'heigth': None,  # 等效SDOF高度（可选）
+                'yield_disp': None,  # 屈服位移（可选）
+                'material_paras': [],  # 定义材料所需的参数
+            },  # 定义SDOF模型所需的直接参数名
             'ground_motions': {
                 'suffix': None,  # 地震动后缀
                 'dt_SF': {}  # 地震动步长及缩放系数
             },
-            'SDOF_models': {}  # 参数组合情况(顺序与独立参数名称对应)
-        }  # 任务信息，记录了所有SDOF模型的建模信息
+            'SDOF_models': {}  # 所有参数所有组合情况，依次为独立参数，常数型参数，从属参数
+        }
+
+    
+    def _get_values(self, name: str) -> float | int | np.ndarray | list:
+        """根据参数名获取参数值"""
+        return self.paras[name][0]
 
 
-    def add_parameters(self, name: str, value: int | float | list | np.ndarray, is_independent: bool):
-        """设置模型参数
+    def _get_type(self, name: str) -> Literal[1, 2, 3]:
+        """根据参数名获取参数类型"""
+        return self.paras[name][1]
+
+
+
+    def add_constant(self, name: str, value: int | float):
+        """设置常数型参数（如阻尼比等）
 
         Args:
-            name (str): 模型参数名
-            value (int | float | list | np.ndarray): 参数值
-            is_independent (bool): 是否是独立参数
+            name (str): 参数名
+            value (int | float): 参数值
         """
-        if not isinstance(value, (int, float, list, np.ndarray)):
-            raise Task_Error(f'参数值只能为int, float, list, np.ndarray类型之一（{type(value)}）')
+        if not isinstance(name, str):
+            raise Task_Error(f'参数名的类型只能为str（{type(name)}）')
+        if not isinstance(value, (int, float)):
+            raise Task_Error(f'常数型参数值只能为int, float类型之一（{type(value)}）')
         if name in self.paras:
             self.logger.warning(f'参数 {name} 已存在，将覆盖')
-        if isinstance(value, (int, float)):
-            value = [value]
-        elif isinstance(value, np.ndarray):
-            value = value.tolist()
-        self.paras[name] = (value, is_independent)
-        self.task_info['para_name'].append(name)
-        self.task_info['para_values'][name] = value
-        if is_independent:
-            self.task_info['independent_para'].append(name)
-            
+        self.paras[name] = (value, 1)
+        self.constant_paras.append(name)
+        self.logger.info(f'添加常数型参数 {name} = {value}')
 
-    def set_model(self,
-            T: str,
-            m: str,
-            zeta: str,
-            P: str):
-        """设置模型基本参数，包括周期、质量、阻尼比。
-        注：周期和质量不是互为独立变量，当周期和质量的数量大于1时，二者数量应相同
+
+    def add_independent_parameter(self, name: str, value: list | np.ndarray):
+        """设置独立参数（如周期等）
 
         Args:
-            T (str): 周期
-            m (str): 质量
-            zeta (str): 阻尼比
-            P (str): 结构重力
+            name (str): 参数名
+            value (list | np.ndarray): 参数值
         """
-        self.T = self.paras[T][0]
-        self.m = self.paras[T][0]
-        self.zeta = self.paras[zeta][0]
-        self.logger.success(f'已定义结构周期与质量，共 {len(T)} 种')
+        if not isinstance(name, str):
+            raise Task_Error(f'参数名的类型只能为str（{type(name)}）')
+        if not isinstance(value, (list, np.ndarray)):
+            raise Task_Error(f'独立参数值只能为list | np.ndarray类型之一（{type(value)}）')
+        if name in self.paras:
+            self.logger.warning(f'参数 {name} 已存在，将覆盖')
+        self.paras[name] = (value, 2)
+        self.independent_paras.append(name)
+        self.logger.info(f'添加独立参数 {name} = {value}')
+
+    
+    def add_dependent_parameter(self, name: str, func: Callable, *independent_paras: str):
+        """设置从属参数
+
+        Args:
+            name (str): 参数名
+            func (Callable): 映射函数(输入独立参数，输出该从属参数)
+            independent_paras (str): 该参数所从属的独立参数名，可为多个，不可为空
+        """
+        if not isinstance(name, str):
+            raise Task_Error(f'参数名的类型只能为str（{type(name)}）')
+        if len(independent_paras) == 0:
+            raise Task_Error(f'参数 independent_paras 未指定')
+        for item in independent_paras:
+            if not isinstance(item, str):
+                raise Task_Error(f'参数 independent_paras 中所有元素的类型都只能为str（{type(item)}）')
+        if name in self.paras:
+            self.logger.warning(f'参数 {name} 已存在，将覆盖')
+        self.paras[name] = (None, 3)
+        self.dependent_paras[name] = [func, *independent_paras]
+        self.logger.info(f'添加从属参数 {name} = func{independent_paras}')
+        
+
+    def define_model(self,
+            period: str,
+            mass: str,
+            damping: str,
+            gravity: str,
+            height: str=None,
+            yield_disp: str=None,
+            ):
+        """设置运行SDOF需要的直接参数
+
+        Args:
+            period (str): 周期
+            mass (str): 质量
+            damping (str): 阻尼比
+            gravity (str): 竖向荷载
+            height (str, optional): 等效SDOF的高度（用于考虑P-Delta）
+            yield_disp (str, optional): 屈服位移（用于计算累积塑性位移）
+        """
+        for item in [period, mass, damping, gravity, height, yield_disp]:
+            if (item is not None) and (item not in self.paras):
+                raise Task_Error(f'参数 {item} 未定义！')
+            if (item is not None) and (not isinstance(item, str)):
+                raise Task_Error(f'参数 {item} 应为str类型（{type(item)}）')
+        self.period = period
+        self.mass = mass
+        self.damping = damping
+        self.gravity = gravity
+        self.height = height
+        self.yield_disp = yield_disp
+        self.logger.success(f'已定义结构周期，共 {len(self._get_values(period))} 种')
 
 
     def set_materials(self, materials: dict[str, tuple[str | int, float, list, np.ndarray]]):
@@ -111,15 +195,28 @@ class Task:
             其中`Fy`、`k`、`alpha`、`E`均可为ModelParameter对象或float、str类型。
             当设有多种材料时，将自动并联
         """
-        for matType, paras in materials.items():
-            paras_ = []
-            for para in paras:
-                if para in self.paras.keys():
-                    # 该参数属于模型参数
-                    paras_.append('$$$' + para)
-                else:
-                    paras_.append(para)
-            self.task_info['material_format'][matType] = paras_
+        identified_paras = set()
+        for key, val in materials.items():
+            for para in val:
+                res = self.identify_para(para)
+                if isinstance(para, str) and res:
+                    identified_paras.add(res)
+                    if res not in self.paras:
+                        raise Task_Error(f'参数 {res} 未定义')
+        self.logger.success(f'已识别参数: {identified_paras}')
+        self.materials = materials
+        self.material_paras = list(identified_paras)  # 定义SDOF材料需要用到的参数
+
+
+    @staticmethod
+    def identify_para(para: str):
+        """识别参数是否存在引用"""
+        if not isinstance(para, str):
+            return
+        if len(para) <= 3:
+            return None
+        if para[: 3] == '$$$':
+            return para[3:]
 
 
     def select_ground_motions(self, GMs: list[str], suffix: str='.txt'):
@@ -399,23 +496,7 @@ class Task:
             plt.show()
         else:
             plt.close()
-        for gm_name, dt, SF in zip(self.GM_names, self.GM_dts, self.GM_SF):
-            self.task_info['ground_motions']['dt_SF'][gm_name] = (dt, SF)
         self.scaling_finished = True
-
-
-    def link_dependent_para(self, dependent: str, independent: str):
-        """设置从属参数关系（每个从属参数都依赖于一个独立参数）
-
-        Args:
-            dependent (str): 从属参数
-            independent (str): 从属参数所依赖的独立参数
-        """
-        if not dependent in self.paras.keys():
-            raise Task_Error(f'参数 {dependent} 未定义')
-        if not independent in self.paras.keys():
-            raise Task_Error(f'参数 {independent} 未定义')
-        self.task_info['dependent_para'][dependent] = independent
 
 
     def generate_models(self, dir_path: Path | str=None, file_name: str=None) -> dict:
@@ -428,61 +509,67 @@ class Task:
         Returns:
             dict: 保护计算任务信息的字典
         """
-        para_unkonw_independent = set(self.task_info['para_name']) - set(self.task_info['independent_para']) - set(self.task_info['dependent_para'].keys())
-        if para_unkonw_independent != set():
-            raise Task_Error(f'以下参数未指派是否为独立参数：{para_unkonw_independent}')
-        ls = []
-        for ind_para in self.task_info['independent_para']:
-            ls.append(self.task_info['para_values'][ind_para])
-        res = list(itertools.product(*ls))
-        for i, paras in enumerate(res):
-            self.task_info['SDOF_models'][i + 1] = paras
+        self._set_task_info()  # 写入task_info
         if dir_path and file_name:
             dir_path = Path(dir_path)
             with open(dir_path / f'{file_name}.json', 'w') as f:
                 f.write(json.dumps(self.task_info, indent=4))
-        self.logger.success(f'共生成 {i + 1} 个SDOF模型')
+        self.logger.success(f'共生成 {self.N_SDOF} 个SDOF模型')
         return self.task_info
 
 
-
-
-if __name__ == "__main__":
-
-    g = 9810
-    m = 1
-    T = np.arange(0.2, 2.2, 0.2)
-    Cy = np.array([0.4, 0.8, 1.2])
-    Fy = Cy * m * g
-    alpha = [0, 0.05, 0.1]
-    k = 4 * pi**2 / T**2 * m
-    P_norm = 0.8
-    P = P_norm * m * g
-    zeta = 0.05
-    material = {
-        'Steel01': ('Fy', 'k', 'alpha')
-    }  # 填多个材料可自动并联
-
-    task = Task()
-    task.add_parameters('m', m, False)
-    task.add_parameters('T', T, False)
-    task.add_parameters('Cy', Cy, False)
-    task.add_parameters('Fy', Fy, True)
-    task.add_parameters('alpha', alpha, True)
-    task.add_parameters('k', k, True)
-    task.add_parameters('P_norm', P_norm, False)
-    task.add_parameters('P', P, False)
-    task.add_parameters('zeta', zeta, True)
-
-    task.set_model('T', 'm', 'zeta', 'P')
-    task.set_materials(material)
-    task.select_ground_motions([f'th{i}'for i in range(1, 8)], '.th')
-    task.scale_ground_motions('j', (1, 2, 2), plot=False)
-    task.link_dependent_para('T', 'k')
-    task.link_dependent_para('m', 'k')
-    task.link_dependent_para('Cy', 'Fy')
-    task.link_dependent_para('P_norm', 'P')
-    task.link_dependent_para('P', 'm')
-    task.generate_models(r'C:\Users\Admin\Desktop\NRSA\temp', 'model')
-    
+    def _set_task_info(self):
+        """定义self.task_info"""
+        for name, (value, type_) in self.paras.items():
+            if isinstance(value, np.ndarray):
+                value = list(value)
+            self.task_info['para_name'].append(name)  # 所有参数名
+            self.task_info['para_values'][name] = value  # 所有参数的取值
+            if type_ == 1:
+                self.task_info['constant'].append(name)  # 常数型参数
+            elif type_ == 2:
+                self.task_info['independent_para'].append(name)  # 独立参数
+            elif type_ == 3:
+                self.task_info['dependent_para'].append(name)  # 从属参数
+            else:
+                raise Task_Error(f'未知type: {type_}')
+        for matType, paras in self.materials.items():
+            self.task_info['material_format'][matType] = list(paras)  # 材料格式
+        # 基本模型参数
+        self.task_info['basic_para']['period'] = self.period
+        self.task_info['basic_para']['damping'] = self.damping
+        self.task_info['basic_para']['mass'] = self.mass
+        self.task_info['basic_para']['gravity'] = self.gravity
+        self.task_info['basic_para']['height'] = self.height
+        self.task_info['basic_para']['yield_disp'] = self.yield_disp
+        self.task_info['basic_para']['material_paras'] = self.material_paras
+        for gm_name, dt, SF in zip(self.GM_names, self.GM_dts, self.GM_SF):
+            self.task_info['ground_motions']['dt_SF'][gm_name] = (dt, SF)
+        # 生成参数组合
+        # 1 写入独立参数组合
+        independent_para_values = []
+        for name in self.independent_paras:
+            independent_para_values.append(self._get_values(name))
+        comb = list(itertools.product(*independent_para_values))
+        for i, paras in enumerate(comb):
+            self.task_info['SDOF_models'][i + 1] = {}
+            for j, name in enumerate(self.independent_paras):
+                self.task_info['SDOF_models'][i + 1][name] = paras[j]
+        N_SDOF = i + 1  # SDOF的数量
+        # 2 写入常数参数
+        for i in range(1, N_SDOF + 1):
+            for name in self.constant_paras:
+                self.task_info['SDOF_models'][i][name] = self._get_values(name)
+        # 3 写入从属参数
+        for i in range(1, N_SDOF + 1):
+            for name, (func, *idpd_names) in self.dependent_paras.items():
+                # 获取独立参数的值
+                for j in range(len(idpd_names)):
+                    if not idpd_names[j] in self.task_info['SDOF_models'][i]:
+                        raise Task_Error(f'未找到从属参数 {name} 所依赖的参数 {idpd_names[j]} 的值，请注意从属参数的添加顺序')
+                idpd_values = [self.task_info['SDOF_models'][i][idpd_names[j]] for j in range(len(idpd_names))]
+                # 计算从属参数的值
+                dpd_value = func(*idpd_values)
+                self.task_info['SDOF_models'][i][name] = dpd_value
+        self.N_SDOF = N_SDOF
 

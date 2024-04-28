@@ -23,3 +23,7 @@ class Win(QDialog):
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowMinMaxButtonsHint)
+        
+
+
+
