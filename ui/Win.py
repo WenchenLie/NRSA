@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'c:/Users/Admin/Desktop/NRSA/ui\Win.ui'
+# Form implementation generated from reading ui file 'f:/NRSA/ui\Win.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.9
 #
@@ -14,8 +14,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Win(object):
     def setupUi(self, Win):
         Win.setObjectName("Win")
-        Win.resize(600, 400)
-        Win.setMinimumSize(QtCore.QSize(600, 400))
+        Win.resize(800, 520)
+        Win.setMinimumSize(QtCore.QSize(800, 520))
+        Win.setMaximumSize(QtCore.QSize(16777215, 16777215))
         font = QtGui.QFont()
         font.setFamily("Times New Roman")
         font.setPointSize(15)
@@ -81,7 +82,6 @@ class Ui_Win(object):
         self.label_8 = QtWidgets.QLabel(self.groupBox_2)
         self.label_8.setMaximumSize(QtCore.QSize(16777215, 30))
         self.label_8.setBaseSize(QtCore.QSize(0, 30))
-        self.label_8.setText("")
         self.label_8.setObjectName("label_8")
         self.horizontalLayout_8.addWidget(self.label_8)
         spacerItem5 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
@@ -151,9 +151,10 @@ class Ui_Win(object):
         self.label_2.setText(_translate("Win", "分析类型："))
         self.label_3.setText(_translate("Win", "SDOF数量："))
         self.label_4.setText(_translate("Win", "地震动数量："))
+        self.label_8.setText(_translate("Win", "SDOF求解器："))
         self.groupBox.setTitle(_translate("Win", "计算进度"))
-        self.label_6.setText(_translate("Win", "已计算次数："))
-        self.label_7.setText(_translate("Win", "已计算地震动："))
+        self.label_6.setText(_translate("Win", "已计算地震动：0"))
+        self.label_7.setText(_translate("Win", "已计算SDOF：0"))
         self.pushButton.setText(_translate("Win", "中断"))
         self.pushButton_2.setText(_translate("Win", "退出"))
 

@@ -68,7 +68,7 @@ class Task:
                 'damping': None,  # 阻尼
                 'mass': None,  # 质量
                 'gravity': None,  # 竖向荷载（可选）
-                'heigth': None,  # 等效SDOF高度（可选）
+                'height': None,  # 等效SDOF高度（可选）
                 'yield_disp': None,  # 屈服位移（可选）
                 'material_paras': [],  # 定义材料所需的参数
             },  # 定义SDOF模型所需的直接参数名
@@ -156,6 +156,8 @@ class Task:
             gravity: str,
             height: str=None,
             yield_disp: str=None,
+            collapse_disp: str=None,
+            maxAnaDisp: str=None,
             ):
         """设置运行SDOF需要的直接参数
 
@@ -166,6 +168,8 @@ class Task:
             gravity (str): 竖向荷载
             height (str, optional): 等效SDOF的高度（用于考虑P-Delta）
             yield_disp (str, optional): 屈服位移（用于计算累积塑性位移）
+            collapse_disp (float, optional): 倒塌判定位移
+            maxAnaDisp (float, optional): 最大分析位移
         """
         for item in [period, mass, damping, gravity, height, yield_disp]:
             if (item is not None) and (item not in self.paras):
@@ -178,6 +182,8 @@ class Task:
         self.gravity = gravity
         self.height = height
         self.yield_disp = yield_disp
+        self.collapse_disp = collapse_disp
+        self.maxAnaDisp = maxAnaDisp
         self.logger.success(f'已定义结构周期，共 {len(self._get_values(period))} 种')
 
 
@@ -210,10 +216,10 @@ class Task:
 
 
     @staticmethod
-    def identify_para(para: str):
+    def identify_para(para: str) -> str | None:
         """识别参数是否存在引用"""
         if not isinstance(para, str):
-            return
+            return None
         if len(para) <= 3:
             return None
         if para[: 3] == '$$$':
@@ -544,6 +550,8 @@ class Task:
         self.task_info['basic_para']['height'] = self.height
         self.task_info['basic_para']['yield_disp'] = self.yield_disp
         self.task_info['basic_para']['material_paras'] = self.material_paras
+        self.task_info['basic_para']['collapse_disp'] = self.collapse_disp
+        self.task_info['basic_para']['maxAnaDisp'] = self.maxAnaDisp
         for gm_name, dt, SF in zip(self.GM_names, self.GM_dts, self.GM_SF):
             self.task_info['ground_motions']['dt_SF'][gm_name] = (dt, SF)
         # 生成参数组合

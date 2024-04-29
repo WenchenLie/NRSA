@@ -6,14 +6,20 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>400</height>
+    <width>800</width>
+    <height>520</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>600</width>
-    <height>400</height>
+    <width>800</width>
+    <height>520</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>16777215</width>
+    <height>16777215</height>
    </size>
   </property>
   <property name="font">
@@ -229,7 +235,7 @@
            </size>
           </property>
           <property name="text">
-           <string/>
+           <string>SDOF求解器：</string>
           </property>
          </widget>
         </item>
@@ -276,7 +282,7 @@
              </size>
             </property>
             <property name="text">
-             <string>已计算次数：</string>
+             <string>已计算地震动：0</string>
             </property>
            </widget>
           </item>
@@ -295,7 +301,7 @@
              </size>
             </property>
             <property name="text">
-             <string>已计算地震动：</string>
+             <string>已计算SDOF：0</string>
             </property>
            </widget>
           </item>

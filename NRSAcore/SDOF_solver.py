@@ -109,7 +109,7 @@ def SDOF_batched_solver(
         ls_uy: tuple[float, ...]=None,
         fv_duration: float=0,
         SF: tuple=(1,)*1000000,
-        zeta: float=0.05,
+        zeta: tuple[float, ...]=(0.05,)*1000000,
         ls_m: tuple[float, ...]=(1,)*1000000,
         g: float=9800,
         ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
@@ -154,7 +154,7 @@ def SDOF_batched_solver(
 
 def PDtSDOF_batched_solver(
         N_SDOFs: int,
-        h: float,
+        ls_h: tuple[float, ...],
         ls_T: tuple[float, ...],
         ls_grav: tuple[float, ...],
         gm: np.ndarray,
@@ -162,8 +162,8 @@ def PDtSDOF_batched_solver(
         ls_materials: tuple[Dict[str, tuple], ...],
         ls_uy: tuple[float, ...]=None,
         fv_duration: float=0,
-        SF: tuple=(1,)*1000000,
-        zeta: float=0.05,
+        ls_SF: tuple=(1,)*1000000,
+        ls_zeta: tuple[float, ...]=(0.05,)*1000000,
         ls_m: tuple[float, ...]=(1,)*1000000,
         g: float=9800,
         ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
@@ -174,7 +174,7 @@ def PDtSDOF_batched_solver(
 
     Args:
         N_SDOFs (int): SDOF体系的数量
-        h (float): 结构等效高度
+        ls_h (tuple[float, ...]): 结构等效高度
         ls_T (tuple[float, ...]): 周期
         ls_grav (tuple[float, ...]): 竖向荷载(需为正值)
         gm (np.ndarray): 地震动加速度时程（单位为g）
@@ -182,8 +182,8 @@ def PDtSDOF_batched_solver(
         ls_materials (tuple[Dict[str, tuple], ...]): 材料属性(弯矩-转角关系)，包括材料名和参数（不包括编号）
         uy (tuple[float, ...], optional): 屈服转角，仅用于计算累积塑性应变，默认None即计算值为None
         fv_duration (float, optional): 自由振动时长，默认为0
-        SF (tuple, optional): 地震动放大系数，默认None，即不额外进行缩放
-        zeta (float, optional): 阻尼比，默认0.05
+        ls_SF (tuple, optional): 地震动放大系数，默认None，即不额外进行缩放
+        ls_zeta (float, optional): 阻尼比，默认0.05
         ls_m (tuple[float, ...], optional): 质量，默认1
         g (float, optional): 重力加速度，默认9800
         ls_collapse_disp (tuple[float, ...], optional): 倒塌转角判定准则，默认1e14
@@ -220,7 +220,7 @@ def PDtSDOF_batched_solver(
            |
      inode o (accel input)
     """
-    model = _PDtSDOF_batched_solver(N_SDOFs, h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, SF, zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
+    model = _PDtSDOF_batched_solver(N_SDOFs, ls_h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF, ls_zeta, ls_m, g, ls_collapse_disp, ls_maxAnalysis_disp)
     results = model.get_results()
     return results
 
@@ -443,7 +443,7 @@ class _SDOF_batched_solver:
             ls_uy: tuple[float, ...]=None,
             fv_duration: float=0,
             SF: tuple=(1,)*1000000,
-            zeta: float=0.05,
+            zeta: tuple[float, ...]=(0.05,)*1000000,
             ls_m: tuple[float, ...]=(1,)*1000000,
             g: float=9800,
             ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
@@ -504,7 +504,7 @@ class _SDOF_batched_solver:
             ops.element('zeroLength', eleTag, inode, jnode, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
             T = self.ls_T[i]
             omega = 2 * pi / T
-            b = 2 * self.zeta / omega
+            b = 2 * self.zeta[i] / omega
             ops.region(i + 1, '-ele', eleTag, '-rayleigh', 0, 0, b, 0)  # Rayleigh阻尼
             self.ctrlEles.append(eleTag)
             eleTag += 1
@@ -688,7 +688,7 @@ class _SDOF_batched_solver:
 class _PDtSDOF_batched_solver:
     def __init__(self,
             N_SDOFs: int,
-            h: float,
+            ls_h: tuple[float, ...],
             ls_T: tuple[float, ...],
             ls_grav: tuple[float, ...],
             gm: np.ndarray,
@@ -697,7 +697,7 @@ class _PDtSDOF_batched_solver:
             ls_uy: tuple[float, ...]=None,
             fv_duration: float=0,
             SF: tuple=(1,)*1000000,
-            zeta: float=0.05,
+            zeta: tuple[float, ...]=(0.05,)*1000000,
             ls_m: tuple[float, ...]=(1,)*1000000,
             g: float=9800,
             ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
@@ -705,7 +705,7 @@ class _PDtSDOF_batched_solver:
         if not (N_SDOFs == len(ls_T) == len(ls_materials)):
             raise SDOF_Error(f'SDOF数量、周期数量、材料数量不等！({N_SDOFs}, {len(ls_T)}, {len(ls_materials)})')
         self.N_SDOFs = N_SDOFs
-        self.h = h
+        self.ls_h = ls_h
         self.ls_T = ls_T
         self.ls_grav = ls_grav
         self.gm = gm
@@ -740,10 +740,11 @@ class _PDtSDOF_batched_solver:
         ops.geomTransf('PDelta', 1)
         for i in range(self.N_SDOFs):
             # 节点、约束、质量
+            h = self.ls_h[i]
             inode, jnode, knode = nodeTag, nodeTag + 1, nodeTag + 2
             ops.node(inode, 0, 0)
-            ops.node(jnode, 0, self.h)
-            ops.node(knode, 0, self.h)
+            ops.node(jnode, 0, h)
+            ops.node(knode, 0, h)
             ops.fix(inode, 1, 1, 0)
             # ops.fix(jnode, 0, 1, 1)
             ops.fix(knode, 1, 1, 1)
@@ -767,7 +768,7 @@ class _PDtSDOF_batched_solver:
             ops.element('elasticBeamColumn', eleTag + 1, inode, jnode, A_rigid, 206000, I_rigid, 1)  # 刚性梁
             T = self.ls_T[i]
             omega = 2 * pi / T
-            b = 2 * self.zeta / omega
+            b = 2 * self.zeta[i] / omega
             ops.region(i + 1, '-ele', eleTag, '-rayleigh', 0, 0, b, 0)  # Rayleigh阻尼
             self.ctrlEles.append(eleTag)
             eleTag += 2
@@ -981,14 +982,14 @@ class _PDtSDOF_batched_solver:
 
 
 if __name__ == "__main__":
-    ls_T = tuple(0.62831853 for _ in range(2))
+    ls_T = tuple(0.62831853 for _ in range(1))
     T = 0.62831853
     h = 1000
-    ls_grav = (0,) * 2
+    ls_grav = (0,) * 1
     gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
     dt = 0.01
-    materials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
-    PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(2))
+    materials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(1))
+    PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(1))
     material = {'Steel01': (200, 100, 0.02)}
     with SDOF_Helper(suppress=False):
         # results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
@@ -996,7 +997,7 @@ if __name__ == "__main__":
         # for i in range(3):
         #     results = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
 
-        results = PDtSDOF_batched_solver(2, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*2, fv_duration=0, ls_collapse_disp=(105, 100))
+        results = PDtSDOF_batched_solver(1, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*1, fv_duration=0, ls_collapse_disp=(105,))
     print(results)
     # print(state)
     # print(result[8][0])

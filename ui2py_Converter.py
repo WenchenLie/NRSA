@@ -1,8 +1,8 @@
 from pathlib import Path
 import os
 
-# pyuic5file = r"D:\Python310\Scripts"  # 大电脑
-pyuic5file = r"D:\Python31011\Scripts"  # 笔记本
+pyuic5file = r"D:\Python311\Scripts"  # 大电脑
+# pyuic5file = r"D:\Python31011\Scripts"  # 笔记本
 
 path = (Path(__file__).parent/'ui').absolute().as_posix()  # ui文件所在目录
 all_files = os.listdir(path)

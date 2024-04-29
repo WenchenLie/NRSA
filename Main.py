@@ -15,6 +15,7 @@ if __name__ == "__main__":
     zeta = 0.05
     P_norm = 0.8
     m = 1
+    h = 1000
     # (2) 独立参数(通常是无量纲参数)
     T = np.arange(0.2, 2.2, 0.2)
     Cy = np.array([0.4, 0.8, 1.2])
@@ -27,7 +28,8 @@ if __name__ == "__main__":
     # 设置参数(注意从属参数的先后定义顺序)
     task.add_constant('zeta', zeta)
     task.add_constant('P_norm', P_norm)
-    task.add_constant('m', 1)
+    task.add_constant('m', m)
+    task.add_constant('h', h)
     task.add_independent_parameter('T', T)
     task.add_independent_parameter('Cy', Cy)
     task.add_independent_parameter('alpha', alpha)
@@ -42,6 +44,8 @@ if __name__ == "__main__":
         mass='m',
         damping='zeta',
         gravity='P',
+        yield_disp='uy',
+        height='h'
     )
 
     # 3 定义材料
