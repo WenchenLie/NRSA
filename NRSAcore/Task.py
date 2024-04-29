@@ -1,15 +1,16 @@
 import sys
 import json
 import itertools
-import numpy as np
-import matplotlib.pyplot as plt
 from math import pi
 from pathlib import Path
 from typing import Literal, Callable
-from loguru import logger
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
-from NRSAcore.ModelParameter import ModelParameter
+
+import numpy as np
+import matplotlib.pyplot as plt
+from loguru import logger
+
 from NRSAcore.Spectrum import Spectrum
 from utils.utils import Task_Error
 from utils import utils
