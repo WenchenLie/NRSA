@@ -107,8 +107,9 @@ class Worker(QThread):
         super().__init__()
         self.task = task
         self.win = win
-        self.queue = multiprocessing.Manager().Queue()
-        self.stop_event = multiprocessing.Manager().Event()
+        self.queue = multiprocessing.Manager().Queue()  # 进程通信
+        self.stop_event = multiprocessing.Manager().Event()  # 触发事件
+        self.lock = multiprocessing.Manager().Lock()  # 进程锁
         
     def kill(self):
         """中断计算"""
@@ -149,8 +150,8 @@ class Worker(QThread):
         for gm_name, (dt, SF) in self.task.task['ground_motions']['dt_SF'].items():
             suffix = self.task.task['ground_motions']['suffix']
             gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
-            args = (queue, stop_event, self.task.func_type, self.task.task, self.ls_batch,
-                    gm, dt, self.task.fv_duration, SF, self.task.g, 1e10, 1e12)
+            args = (queue, stop_event, self.lock, self.task.func_type, self.task.task, self.ls_batch,
+                    gm, dt, self.task.fv_duration, SF, self.task.g)
             ls_paras.append(args)
         with multiprocessing.Pool(self.task.parallel) as pool:
             for i in range(self.task.GM_N):
@@ -186,22 +187,20 @@ class Worker(QThread):
                     break
 
 
-def _run_constant_strength(
-        # TODO 发送信号更改进度条
-        queue: multiprocessing.Queue,
-        stop_event,
-        func_type: int,
-        task_info: dict,
-        ls_batch: list[list[int]],
-        # # ----------- SDOF parameters ---------------
-        gm: np.ndarray,
-        dt: float,
-        fv_duration: float,
-        SF: float,
-        g: float,
-        clpsDisp_or_clpsDisps: float | tuple[float, ...],
-        maxAnaDisp_or_maxAnaDisps: float | tuple[float, ...],
-    ):
+# def _run_constant_strength(
+#         queue: multiprocessing.Queue,
+#         stop_event,
+#         lock,
+#         func_type: int,
+#         task_info: dict,
+#         ls_batch: list[list[int]],
+#         gm: np.ndarray,
+#         dt: float,
+#         fv_duration: float,
+#         SF: float,
+#         g: float,
+#     ):
+def _run_constant_strength(*args, **kwargs):
     """SDOF计算函数，每次调用求解一条地震动
 
     Args:
@@ -217,6 +216,20 @@ def _run_constant_strength(
         后续参数见SDOF_solver.py
     """
     try:
+        queue: multiprocessing.Queue
+        stop_event: multiprocessing.Event
+        lock: multiprocessing.Lock
+        func_type: int
+        task_info: dict
+        ls_batch: list[list[int]]
+        gm: np.ndarray
+        dt: float
+        fv_duration: float
+        SF: float
+        g: float
+        queue, stop_event, lock, func_type, task_info, ls_batch, gm, dt,\
+        fv_duration, SF, g = args
+
         func = FUNC[func_type]
         T_name = task_info['basic_para']['period']
         zeta_name = task_info['basic_para']['damping']
@@ -241,8 +254,16 @@ def _run_constant_strength(
                 P = task_info['SDOF_models'][n][P_name]
                 uy = task_info['SDOF_models'][n][uy_name]
                 materials = _parse_material(task_info, n)
+                if collapseDisp_name:
+                    collapseDisp = task_info['SDOF_models'][n][collapseDisp_name]
+                else:
+                    collapseDisp = 1e10
+                if maxAnaDisp_name:
+                    maxAnaDisp = task_info['SDOF_models'][n][maxAnaDisp_name]
+                else:
+                    maxAnaDisp = 2e10
                 result = SDOF_solver(T, gm, dt, materials, uy, fv_duration, zeta, m, g,
-                            clpsDisp_or_clpsDisps, maxAnaDisp_or_maxAnaDisps)
+                            collapseDisp, maxAnaDisp)
                 finished_SDOF += 1
         elif func_type == 2:
             for batch in ls_batch:
@@ -293,6 +314,7 @@ def _run_constant_strength(
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
         queue.put(('a', finished_SDOF))
     except Exception as e:
+        print(333)
         queue.put(('i', e))
 
 
@@ -315,4 +337,18 @@ def _parse_material(task: dict, n: str) -> dict:
     return materials
         
 
+def _write_result(
+    output_json: Path | str,
+    results: dict,
+    batch: bool,
+    lock
+    ):
+    """将SDOF计算结果写入json文件，每次调用会打开generated_file并进行写入
 
+    Args:
+        output_json (Path | str): 输出文件夹中的json文件
+        results (dict): SDOF求解器返回的结果
+        batch (bool): 是否设置批量计算
+        lock (multiprocessing.Lock): 进程锁
+    """
+    pass

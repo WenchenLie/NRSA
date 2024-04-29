@@ -1,5 +1,6 @@
 import sys
 import json
+import shutil
 import numpy as np
 from typing import Literal
 from pathlib import Path
@@ -35,6 +36,7 @@ class SDOFmodel:
                 self.task = json.loads(f.read())
         if task:
             self.task = task
+        self.json_file = json_file
         self._get_task_info()
 
 
@@ -45,6 +47,7 @@ class SDOFmodel:
 
 
     def set_analytical_options(self,
+            output_dir: Path | str,
             analysis_type: Literal['constant_ductility', 'constant_strength'],
             fv_duration: float=0,
             PDelta: bool=False,
@@ -57,6 +60,7 @@ class SDOFmodel:
         """设置分析参数
 
         Args:
+            output_dir (Path | str): 用于储存计算结果的文件夹
             analysis_type (Literal['constant_ductility', 'constant_strength']): 分析类型，等延性或等屈服强度
             fv_duration (float, optional): 自由振动时长
             PDelta (bool, optional): 是否考虑P-Delta效应，默认False
@@ -78,6 +82,8 @@ class SDOFmodel:
             raise SDOF_Error('参数 parallel 应为整数')
         if parallel < 1:
             raise SDOF_Error('参数 parallel 应大于等于1')
+        output_dir = Path(output_dir)
+        self.output_dir = output_dir
         if batch == 1 and not PDelta:
             func_type = 1
         elif batch > 1 and not PDelta:
@@ -113,6 +119,10 @@ class SDOFmodel:
 
 
     def run(self):
+        """开始运行分析"""
+        utils.creat_folder(self.output_dir)  # TODO 询问通过消息框实现
+        self.output_json = self.output_dir / self.json_file.name
+        shutil.copy2(self.json_file, self.output_json)  # 将json模型文件复制到输出文件夹
         QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
@@ -125,6 +135,7 @@ class SDOFmodel:
 if __name__ == "__main__":
     model = SDOFmodel(json_file=Path(__file__).parent.parent/'temp'/'model.json')
     model.set_analytical_options(
+        Path(__file__).parent.parent / 'Output',
         'constant_strength',
         PDelta=True,
         batch=10,

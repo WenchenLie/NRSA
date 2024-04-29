@@ -39,7 +39,7 @@ if __name__ == "__main__":
     task.add_dependent_parameter('P', get_P, 'P_norm', 'm')
     
     # 2 设置模型基本参数
-    task.define_model(
+    task.define_basic_parameters(
         period='T',
         mass='m',
         damping='zeta',

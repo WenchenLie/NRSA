@@ -149,17 +149,18 @@ class Task:
         self.logger.info(f'添加从属参数 {name} = func{independent_paras}')
         
 
-    def define_model(self,
+    def define_basic_parameters(self,
             period: str,
             mass: str,
             damping: str,
             gravity: str,
             height: str=None,
             yield_disp: str=None,
+            yield_strength: str=None,
             collapse_disp: str=None,
             maxAnaDisp: str=None,
             ):
-        """设置运行SDOF需要的直接参数
+        """定义一些SDOF模型的基本参数，即运行SDOF需要的直接参数
 
         Args:
             period (str): 周期
@@ -168,6 +169,7 @@ class Task:
             gravity (str): 竖向荷载
             height (str, optional): 等效SDOF的高度（用于考虑P-Delta）
             yield_disp (str, optional): 屈服位移（用于计算累积塑性位移）
+            yield_strength (str, optional): 屈服强度（用于不断调整以计算等延性谱）
             collapse_disp (float, optional): 倒塌判定位移
             maxAnaDisp (float, optional): 最大分析位移
         """
@@ -182,6 +184,7 @@ class Task:
         self.gravity = gravity
         self.height = height
         self.yield_disp = yield_disp
+        self.yield_strength = yield_strength
         self.collapse_disp = collapse_disp
         self.maxAnaDisp = maxAnaDisp
         self.logger.success(f'已定义结构周期，共 {len(self._get_values(period))} 种')
@@ -549,6 +552,7 @@ class Task:
         self.task_info['basic_para']['gravity'] = self.gravity
         self.task_info['basic_para']['height'] = self.height
         self.task_info['basic_para']['yield_disp'] = self.yield_disp
+        self.task_info['basic_para']['yield_strength'] = self.yield_strength
         self.task_info['basic_para']['material_paras'] = self.material_paras
         self.task_info['basic_para']['collapse_disp'] = self.collapse_disp
         self.task_info['basic_para']['maxAnaDisp'] = self.maxAnaDisp
