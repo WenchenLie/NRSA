@@ -8,8 +8,12 @@ import os
 import sys
 import time
 import datetime
+import traceback
 import multiprocessing
 from typing import Literal
+from collections.abc import Iterable
+
+import h5py
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QWidget
 
@@ -147,11 +151,12 @@ class Worker(QThread):
         ls_paras: list[tuple] = []
         queue = self.queue
         stop_event = self.stop_event
+        output_h5 = self.task.dir_output / f'{self.task.model_name}.h5'
         for gm_name, (dt, SF) in self.task.task['ground_motions']['dt_SF'].items():
             suffix = self.task.task['ground_motions']['suffix']
             gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
-            args = (queue, stop_event, self.lock, self.task.func_type, self.task.task, self.ls_batch,
-                    gm, dt, self.task.fv_duration, SF, self.task.g)
+            args = (queue, stop_event, self.lock, output_h5, self.task.func_type, self.task.task, self.ls_batch,
+                    gm, dt, self.task.fv_duration, SF, self.task.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.task.parallel) as pool:
             for i in range(self.task.GM_N):
@@ -168,11 +173,11 @@ class Worker(QThread):
         finished_SDOF = 0  # 已计算完成的SDOF
         while True:
             if not queue.empty():
-                flag, other = queue.get()
+                flag, *other = queue.get()
                 if flag == 'a':  # 地震动完成
                     # other: 该条地震动计算的SDOF数量
                     finished_GM += 1
-                    finished_SDOF += other
+                    finished_SDOF += other[0]
                     self.signal_set_progressBar.emit((int(finished_GM/self.task.GM_N*100), f'已计算地震动：{finished_GM}'))
                     self.signal_set_finished_SDOF.emit(finished_SDOF)
                 elif flag == 'h':  # 中断计算
@@ -181,25 +186,14 @@ class Worker(QThread):
                     break
                 elif flag == 'i':  # 异常
                     # other: 异常
-                    raise other
+                    print(other[1])
+                    raise other[0]
                 if finished_GM == self.task.GM_N:
                     self.signal_finish_all.emit()
                     break
 
 
-# def _run_constant_strength(
-#         queue: multiprocessing.Queue,
-#         stop_event,
-#         lock,
-#         func_type: int,
-#         task_info: dict,
-#         ls_batch: list[list[int]],
-#         gm: np.ndarray,
-#         dt: float,
-#         fv_duration: float,
-#         SF: float,
-#         g: float,
-#     ):
+
 def _run_constant_strength(*args, **kwargs):
     """SDOF计算函数，每次调用求解一条地震动
 
@@ -215,20 +209,22 @@ def _run_constant_strength(*args, **kwargs):
 
         后续参数见SDOF_solver.py
     """
+    queue: multiprocessing.Queue
+    stop_event: multiprocessing.Event
+    lock: multiprocessing.Lock
+    output_h5: Path
+    func_type: int
+    task_info: dict
+    ls_batch: list[list[int]]
+    gm: np.ndarray
+    dt: float
+    fv_duration: float
+    SF: float
+    g: float
+    gm_name: float
     try:
-        queue: multiprocessing.Queue
-        stop_event: multiprocessing.Event
-        lock: multiprocessing.Lock
-        func_type: int
-        task_info: dict
-        ls_batch: list[list[int]]
-        gm: np.ndarray
-        dt: float
-        fv_duration: float
-        SF: float
-        g: float
-        queue, stop_event, lock, func_type, task_info, ls_batch, gm, dt,\
-        fv_duration, SF, g = args
+        queue, stop_event, lock, output_h5, func_type, task_info, ls_batch,\
+        gm, dt, fv_duration, SF, g, gm_name = args
 
         func = FUNC[func_type]
         T_name = task_info['basic_para']['period']
@@ -245,6 +241,7 @@ def _run_constant_strength(*args, **kwargs):
         # (n: SDOF模型的序号)
         if func_type == 1:
             for n in task_info['SDOF_models'].keys():
+                # n: str
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
@@ -262,8 +259,11 @@ def _run_constant_strength(*args, **kwargs):
                     maxAnaDisp = task_info['SDOF_models'][n][maxAnaDisp_name]
                 else:
                     maxAnaDisp = 2e10
-                result = SDOF_solver(T, gm, dt, materials, uy, fv_duration, zeta, m, g,
+                result = SDOF_solver(T, gm, dt, materials, uy, fv_duration, SF, zeta, m, g,
                             collapseDisp, maxAnaDisp)
+                res = _write_result(output_h5, result, gm_name, n, lock)
+                if res:
+                    raise res
                 finished_SDOF += 1
         elif func_type == 2:
             for batch in ls_batch:
@@ -287,6 +287,9 @@ def _run_constant_strength(*args, **kwargs):
                     ls_maxAnaDisp = tuple(2e10 for _ in batch)
                 result = SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
+                error = _write_result(output_h5, result, gm_name, batch, lock)
+                if error:
+                    raise error
                 finished_SDOF += N_SDOFs
         elif func_type == 3:
             for batch in ls_batch:
@@ -312,13 +315,15 @@ def _run_constant_strength(*args, **kwargs):
                     ls_maxAnaDisp = tuple(2e10 for _ in batch)
                 result = PDtSDOF_batched_solver(N_SDOFs, ls_h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
+                error = _write_result(output_h5, result, gm_name, batch, lock)
+                if error:
+                    raise error
+                finished_SDOF += N_SDOFs
         queue.put(('a', finished_SDOF))
     except Exception as e:
-        print(333)
-        queue.put(('i', e))
-
-
-
+        tb = traceback.format_exc()
+        queue.put(('i', e, tb))
+        return
 
 
 def _parse_material(task: dict, n: str) -> dict:
@@ -338,17 +343,49 @@ def _parse_material(task: dict, n: str) -> dict:
         
 
 def _write_result(
-    output_json: Path | str,
+    output_h5: Path | str,
     results: dict,
-    batch: bool,
-    lock
+    gm_name: str,
+    n: str | list[int],
+    lock: multiprocessing.Lock
     ):
     """将SDOF计算结果写入json文件，每次调用会打开generated_file并进行写入
 
     Args:
-        output_json (Path | str): 输出文件夹中的json文件
+        output_h5 (Path | str): 输出文件夹中的json文件
         results (dict): SDOF求解器返回的结果
-        batch (bool): 是否设置批量计算
+        batched (bool): 是否设置批量计算
         lock (multiprocessing.Lock): 进程锁
     """
-    pass
+    output_h5 = Path(output_h5)
+    lock.acquire()
+    try:
+        if not output_h5.exists():
+            f = h5py.File(output_h5, 'w')
+        else:
+            f = h5py.File(output_h5, 'a')
+        if not gm_name in f:
+            f.create_group(gm_name)
+        # 写入响应类型
+        if not 'response_type' in f:
+            f.create_dataset('response_type', data=list(results.keys()))
+        # 写入响应数据
+        if isinstance(n, str):
+            # results: dict[str, bool | float]
+            f[gm_name].create_dataset(n, data=list(results.values()))
+        elif isinstance(n, list):
+            # results: dict[str, bool | tuple[bool, ...] | list[float]]
+            for i, response in enumerate(list(zip(*(results.values())))):  
+                # *将响应结果转置
+                f[gm_name].create_dataset(str(n[i]), data=response)
+        else:
+            raise SDOF_Error(f'不支持的参数 n 类型：{type(n)}')
+        f.close()
+    except Exception as error:
+        lock.release()
+        f.close()
+        return error
+    else:
+        lock.release()
+        return
+

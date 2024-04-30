@@ -6,18 +6,21 @@ import numpy as np
 from pathlib import Path
 from typing import Literal
 sys.path.append(str(Path(__file__).parent.parent))
+from PyQt5.QtWidgets import QMessageBox
 from NRSAcore.ModelParameter import ModelParameter
 
 
 def creat_folder(
         path: Path | str,
-        exists: Literal['overwrite', 'delete', 'ask']='ask'
+        exists: Literal['overwrite', 'delete', 'ask']='ask',
+        logger=None
         ) -> bool:
     """创建文件夹
 
     Args:
         path (Path): 路径
         exists (str, optional): 如果文件夹存在，如何处理('overwrite', 'delete', or 'ask')
+        logger (logger, optional): 日志
 
     Returns:
         bool: True — Go on, False - Quit.
@@ -32,14 +35,21 @@ def creat_folder(
             shutil.rmtree(path=path)
             os.makedirs(path)
         elif exists == 'ask':
-            res = input(f'文件夹{path}存在！\n[Enter] - 删除\n[o] - 覆盖\n[q] - 退出\n请选择：')
-            if res == '':
-                shutil.rmtree(path=path)
+            res1 = QMessageBox.question(None, '警告', f'{path}已存在，是否删除？')
+            if res1 == QMessageBox.Yes:
+                shutil.rmtree(path)
                 os.makedirs(path)
-            elif res == 'o':
-                pass
-            elif res == 'q':
-                return False
+                if logger:
+                    logger.warning(f'已删除并新建{path}')
+                return True
+            else:
+                res2 = QMessageBox.question(None, '警告', f'是否覆盖数据？')
+                if res2 == QMessageBox.Yes:
+                    return True
+                else:
+                    if logger:
+                        logger.warning('已退出分析')
+                    return False
     return True
 
 

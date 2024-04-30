@@ -20,6 +20,7 @@ class SDOFmodel:
     dir_main = Path(__file__).parent.parent
     dir_temp = dir_main / 'temp'
     dir_input = dir_main / 'Input'
+    dir_output = dir_main / 'Output'
     dir_gm = dir_input / 'GMs'
 
     def __init__(self, json_file: Path | str=None, task: dict=None):
@@ -37,7 +38,16 @@ class SDOFmodel:
         if task:
             self.task = task
         self.json_file = json_file
+        self.model_name = json_file.stem
+        self.construct_QApp()
         self._get_task_info()
+
+
+    def construct_QApp(self):
+        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        self.app = QApplication(sys.argv)
 
 
     def _get_task_info(self):
@@ -64,7 +74,7 @@ class SDOFmodel:
             analysis_type (Literal['constant_ductility', 'constant_strength']): 分析类型，等延性或等屈服强度
             fv_duration (float, optional): 自由振动时长
             PDelta (bool, optional): 是否考虑P-Delta效应，默认False
-            batch (int, optional): 在同一模型空间下建立的SDOF数量，默认1
+            batch (int, optional): 在同一模型空间下建立的SDOF数量，默认1(该值不影响计算结果，但可能影响计算效率)
             parallel (int, optional): 是否开启多进程并行计算，默认0，即不开启，不为0时为开启的进程数量，
             每个子进程处理一条地震波
             ductility_tol (float, optional): 等延性分析时目标延性的收敛容差，默认0.01
@@ -120,16 +130,12 @@ class SDOFmodel:
 
     def run(self):
         """开始运行分析"""
-        utils.creat_folder(self.output_dir)  # TODO 询问通过消息框实现
-        self.output_json = self.output_dir / self.json_file.name
-        shutil.copy2(self.json_file, self.output_json)  # 将json模型文件复制到输出文件夹
-        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
-        app = QApplication(sys.argv)
+        utils.creat_folder(self.output_dir)
+        # self.output_json = self.output_dir / self.json_file.name
+        # shutil.copy2(self.json_file, self.output_json)  # 将json模型文件复制到输出文件夹
         win = _Win(self)
         win.show()
-        app.exec_() 
+        self.app.exec_() 
 
 
 if __name__ == "__main__":
@@ -140,7 +146,7 @@ if __name__ == "__main__":
         PDelta=True,
         batch=10,
         auto_quit=False,
-        parallel=7
+        parallel=10
     )
     model.run()
 

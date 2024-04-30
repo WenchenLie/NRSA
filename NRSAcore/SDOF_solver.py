@@ -59,6 +59,7 @@ def SDOF_solver(
         materials: Dict[str, tuple],
         uy: float=None,
         fv_duration: float=0,
+        SF: float=None,
         zeta: float=0.05,
         m: float=1,
         g: float=9800,
@@ -75,6 +76,7 @@ def SDOF_solver(
         materials (Dict[str, tuple]): 材料属性，包括材料名和参数（不包括编号）
         uy (float, optional): 屈服位移，仅用于计算累积塑性应变，默认None即计算值为None
         fv_duration (float, optional): 自由振动时长，默认为0
+        SF (float, optional): 地震动放大系数，默认不额外进行缩放
         zeta (float, optional): 阻尼比，默认0.05
         m (float, optional): 质量，默认1
         g (float, optional): 重力加速度，默认9800
@@ -95,7 +97,7 @@ def SDOF_solver(
         * 累积塑性位移：'CPD': float
         * 残余位移：'resDisp': float
     """
-    model = _SDOF_solver(T, gm, dt, materials, uy, fv_duration, zeta, m, g, collapse_disp, maxAnalysis_disp)
+    model = _SDOF_solver(T, gm, dt, materials, uy, fv_duration, SF, zeta, m, g, collapse_disp, maxAnalysis_disp)
     results = model.get_results()
     return results
 
@@ -114,7 +116,7 @@ def SDOF_batched_solver(
         g: float=9800,
         ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
         ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,
-    ) -> dict[str, bool | tuple[bool, ...] | list[float]]:
+    ) -> dict[str, tuple[bool, ...] | list[float]]:
     """SDOF求解函数，每次调用可对多个SDOF在同一模型空间下进行非线性时程分析。
     每个SDOF的模型结构与`SDOF_solver`函数相同，但可批量创建。
 
@@ -126,7 +128,7 @@ def SDOF_batched_solver(
         ls_materials (tuple[Dict[str, tuple], ...]): 材料属性，包括材料名和参数（不包括编号）
         ls_uy (tuple[float, ...], optional): 屈服位移，仅用于计算累积塑性应变，默认None即计算值为None
         fv_duration (float, optional): 自由振动时长，默认为0
-        SF (tuple, optional): 地震动放大系数，默认None，即不额外进行缩放
+        SF (tuple, optional): 地震动放大系数，默认不额外进行缩放
         zeta (float, optional): 阻尼比，默认0.05
         ls_m (tuple[float, ...], optional): 质量，默认1
         g (float, optional): 重力加速度，默认9800
@@ -168,7 +170,7 @@ def PDtSDOF_batched_solver(
         g: float=9800,
         ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
         ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,
-    ) -> dict[str, bool | tuple[bool, ...] | list[float]]:
+    ) -> dict[str, tuple[bool, ...] | list[float]]:
     """SDOF求解函数，每次调用可对多个SDOF在同一模型空间下进行非线性时程分析，
     可考虑P-Delta效应
 
@@ -182,7 +184,7 @@ def PDtSDOF_batched_solver(
         ls_materials (tuple[Dict[str, tuple], ...]): 材料属性(弯矩-转角关系)，包括材料名和参数（不包括编号）
         uy (tuple[float, ...], optional): 屈服转角，仅用于计算累积塑性应变，默认None即计算值为None
         fv_duration (float, optional): 自由振动时长，默认为0
-        ls_SF (tuple, optional): 地震动放大系数，默认None，即不额外进行缩放
+        ls_SF (tuple, optional): 地震动放大系数，默认不额外进行缩放
         ls_zeta (float, optional): 阻尼比，默认0.05
         ls_m (tuple[float, ...], optional): 质量，默认1
         g (float, optional): 重力加速度，默认9800
@@ -237,6 +239,7 @@ class _SDOF_solver:
             materials: Dict[str, tuple],
             uy: float=None,
             fv_duration: float=0,
+            SF: float=1,
             zeta: float=0.05,
             m: float=1,
             g: float=9800,
@@ -248,6 +251,7 @@ class _SDOF_solver:
         self.materials = materials
         self.uy = uy
         self.fv_duration = fv_duration
+        self.SF = SF
         self.zeta = zeta
         self.m = m
         self.g = g
@@ -280,7 +284,7 @@ class _SDOF_solver:
         ops.region(1, '-ele', 1, '-rayleigh', self.a, 0, self.b, 0)  # Rayleigh阻尼
         ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
         ops.pattern('MultipleSupport', 1)
-        ops.groundMotion(1, 'Plain', '-accel', 1)
+        ops.groundMotion(1, 'Plain', '-accel', 1, '-fact', self.SF)
         ops.imposedMotion(1, 1, 1)
         # 分析
         converge, collapse, response = self.time_history_analysis()
@@ -570,7 +574,7 @@ class _SDOF_batched_solver:
                 current_collapse_flag, maxAna_flag = self.SDR_tester()  # 判断当前步是否收敛
                 collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(self.N_SDOFs))
                 if (ops.getTime() >= self.duration) or maxAna_flag or (abs(ops.getTime() - self.duration) < 1e-5):
-                    return True, collapse_flag, result[: 9]
+                    return [True] * self.N_SDOFs, collapse_flag, result[: 9]
                 factor *= 2
                 factor = min(factor, max_factor)
                 algorithm_id -= 1
@@ -582,7 +586,7 @@ class _SDOF_batched_solver:
                     factor = min_factor
                     algorithm_id += 1
                     if algorithm_id == 4:
-                        return False, collapse_flag, result[: 9]
+                        return [False] * self.N_SDOFs, collapse_flag, result[: 9]
             dt = dt_init * factor
             if dt + ops.getTime() > self.duration:
                 dt = self.duration - ops.getTime()
@@ -855,7 +859,7 @@ class _PDtSDOF_batched_solver:
                 current_collapse_flag, maxAna_flag = self.SDR_tester()  # 判断当前步是否收敛
                 collapse_flag = tuple(collapse_flag[i] or current_collapse_flag[i] for i in range(self.N_SDOFs))
                 if (ops.getTime() >= self.duration) or maxAna_flag or (abs(ops.getTime() - self.duration) < 1e-5):
-                    return True, collapse_flag, result[: 9]
+                    return [True] * self.N_SDOFs, collapse_flag, result[: 9]
                 factor *= 2
                 factor = min(factor, max_factor)
                 algorithm_id -= 1
@@ -867,7 +871,7 @@ class _PDtSDOF_batched_solver:
                     factor = min_factor
                     algorithm_id += 1
                     if algorithm_id == 4:
-                        return False, collapse_flag, result[: 9]
+                        return [False] * self.N_SDOFs, collapse_flag, result[: 9]
             dt = dt_init * factor
             if dt + ops.getTime() > self.duration:
                 dt = self.duration - ops.getTime()
@@ -982,22 +986,22 @@ class _PDtSDOF_batched_solver:
 
 
 if __name__ == "__main__":
-    ls_T = tuple(0.62831853 for _ in range(1))
-    T = 0.62831853
-    h = 1000
+    ls_T = tuple(0.2 for _ in range(1))
+    T = 0.2
+    h = 1
     ls_grav = (0,) * 1
     gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
     dt = 0.01
-    materials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(1))
-    PDtMaterials = tuple({'Steel01': (200, 100, 0.02)} for _ in range(1))
-    material = {'Steel01': (200, 100, 0.02)}
+    materials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
+    PDtMaterials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
+    material = {'Steel01': (3924, 986.9604401089356, 0.0)}
     with SDOF_Helper(suppress=False):
         # results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
 
         # for i in range(3):
-        #     results = SDOF_solver(T, gm, dt, material, uy=2, fv_duration=0)
+        #     results = SDOF_solver(T, gm, dt, material, uy=3.9758432461253355, fv_duration=0)
 
-        results = PDtSDOF_batched_solver(1, h, ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[2]*1, fv_duration=0, ls_collapse_disp=(105,))
+        results = PDtSDOF_batched_solver(1, (h,), ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[3.9758432461253355]*1, fv_duration=0, ls_collapse_disp=(105,), ls_SF=(5.984352224424968,))
     print(results)
     # print(state)
     # print(result[8][0])
