@@ -7,6 +7,7 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
+from loguru import logger
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
@@ -30,11 +31,13 @@ class SDOFmodel:
             json_file (Path | str, optional): 从json文件导入，默认None
             task (dict, optional): 从Task类生成的字典导入
         """
+        self.logger = logger
         if json_file is None and task is None:
             raise SDOF_Error('参数 json_file 与 task 至少应指定一个')
         if json_file:
             with open(json_file, 'r') as f:
                 self.task = json.loads(f.read())
+                self.logger.success(f'已导入：{json_file.name}')
         if task:
             self.task = task
         self.json_file = json_file
@@ -116,7 +119,8 @@ class SDOFmodel:
             else:
                 raise SDOF_Error(f'未知求解器类型：{solver}')
         from _Win import FUNC
-        solver_name = FUNC[func_type].__name__  # TODO 让logger显示SDOF求解器名
+        solver_name = FUNC[func_type].__name__
+        self.logger.info(f'SDOF求解器：{solver_name}')
         self.func_type = func_type
         self.analysis_type = analysis_type
         self.fv_duration = fv_duration
@@ -130,10 +134,10 @@ class SDOFmodel:
 
     def run(self):
         """开始运行分析"""
-        utils.creat_folder(self.output_dir)
-        # self.output_json = self.output_dir / self.json_file.name
-        # shutil.copy2(self.json_file, self.output_json)  # 将json模型文件复制到输出文件夹
-        win = _Win(self)
+        if not utils.creat_folder(self.output_dir):
+            self.logger.warning('已退出分析')
+            return
+        win = _Win(self, self.logger)
         win.show()
         self.app.exec_() 
 

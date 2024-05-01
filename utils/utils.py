@@ -23,7 +23,7 @@ def creat_folder(
         logger (logger, optional): 日志
 
     Returns:
-        bool: True — Go on, False - Quit.
+        bool: True - Go on, False - Quit.
     """
     path = Path(path)
     if not path.exists():

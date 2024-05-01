@@ -14,6 +14,7 @@ from typing import Literal
 from collections.abc import Iterable
 
 import h5py
+import loguru
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QWidget
 
@@ -36,7 +37,7 @@ class _Win(QDialog):
     dir_input = dir_main / 'Input'
     dir_gm = dir_input / 'GMs'
 
-    def __init__(self, task: SDOFmodel) -> None:
+    def __init__(self, task: SDOFmodel, logger: loguru.Logger) -> None:
         """监控窗口
 
         Args:
@@ -46,6 +47,7 @@ class _Win(QDialog):
         self.ui = Ui_Win()
         self.ui.setupUi(self)
         self.task = task
+        self.logger = logger
         self.init_ui()
         self.run()
 
@@ -111,6 +113,7 @@ class Worker(QThread):
         super().__init__()
         self.task = task
         self.win = win
+        self.logger = self.win.logger
         self.queue = multiprocessing.Manager().Queue()  # 进程通信
         self.stop_event = multiprocessing.Manager().Event()  # 触发事件
         self.lock = multiprocessing.Manager().Lock()  # 进程锁
@@ -143,19 +146,23 @@ class Worker(QThread):
 
     def run_constant_ductility(self):
         """等延性分析"""
-        pass  # TODO
+        s = '（多进程）' if self.task.parallel > 1 else ''
+        self.logger.success(f'开始进行：等延性谱分析{s}')
+        # TODO
 
 
     def run_constant_strength(self):
         """等强度分析"""
+        s = '（多进程）' if self.task.parallel > 1 else ''
+        self.logger.success(f'开始进行：性能需求谱分析{s}')
         ls_paras: list[tuple] = []
         queue = self.queue
         stop_event = self.stop_event
-        output_h5 = self.task.dir_output / f'{self.task.model_name}.h5'
+        self.output_h5 = self.task.dir_output / f'{self.task.model_name}.h5'
         for gm_name, (dt, SF) in self.task.task['ground_motions']['dt_SF'].items():
             suffix = self.task.task['ground_motions']['suffix']
             gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
-            args = (queue, stop_event, self.lock, output_h5, self.task.func_type, self.task.task, self.ls_batch,
+            args = (queue, stop_event, self.lock, self.output_h5, self.task.func_type, self.task.task, self.ls_batch,
                     gm, dt, self.task.fv_duration, SF, self.task.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.task.parallel) as pool:
@@ -189,6 +196,9 @@ class Worker(QThread):
                     print(other[1])
                     raise other[0]
                 if finished_GM == self.task.GM_N:
+                    # 所有计算完成
+                    self.logger.success('计算完成')
+                    self.logger.success(f'生成结果文件：{self.output_h5}')
                     self.signal_finish_all.emit()
                     break
 
