@@ -6,8 +6,17 @@ import numpy as np
 from pathlib import Path
 from typing import Literal
 sys.path.append(str(Path(__file__).parent.parent))
+from loguru import logger
 from PyQt5.QtWidgets import QMessageBox
 from NRSAcore.ModelParameter import ModelParameter
+
+logger.remove()
+logger.add(
+    sink=sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
+    level="DEBUG"
+)
+LOGGER = logger
 
 
 def creat_folder(
@@ -138,6 +147,13 @@ def gradient_descent(a, b, init_SF, learning_rate, num_iterations):
         gradient = 2 * np.dot(error, a) / len(a)
         f -= learning_rate * gradient
     return f        
+
+
+def decode_list(ls: list[bytes]):
+    """将从hdf5文件读取的字节串解码为字符串"""
+    ls_new = [s.decode('utf-8') for s in ls]
+    return ls_new
+
 
 
 if __name__ == "__main__":

@@ -1,18 +1,15 @@
 import sys
 import json
-import shutil
-import numpy as np
 from typing import Literal
 from pathlib import Path
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
-
-from loguru import logger
+    
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication
 
 from NRSAcore._Win import _Win
-from utils.utils import SDOF_Error
+from utils.utils import SDOF_Error, LOGGER
 from utils import utils
 
 
@@ -31,7 +28,7 @@ class SDOFmodel:
             json_file (Path | str, optional): 从json文件导入，默认None
             task (dict, optional): 从Task类生成的字典导入
         """
-        self.logger = logger
+        self.logger = LOGGER
         if json_file is None and task is None:
             raise SDOF_Error('参数 json_file 与 task 至少应指定一个')
         if json_file:

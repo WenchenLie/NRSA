@@ -9,19 +9,12 @@ if __name__ == "__main__":
 
 import numpy as np
 import matplotlib.pyplot as plt
-from loguru import logger
 
 from NRSAcore.Spectrum import Spectrum
-from utils.utils import Task_Error
+from utils.utils import Task_Error, LOGGER
 from utils import utils
 
 
-logger.remove()
-logger.add(
-    sink=sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
-    level="DEBUG"
-)
 
 
 class Task:
@@ -44,7 +37,7 @@ class Task:
 
 
     def __init__(self):
-        self.logger = logger
+        self.logger = LOGGER
         self.logger.success('欢迎使用非线性反应谱分析程序')
         utils.creat_folder(self.dir_temp, 'overwrite')
         # 所有用到的模型参数（1-常数，2-独立参数，3-从属参数）

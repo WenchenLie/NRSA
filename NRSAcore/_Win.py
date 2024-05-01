@@ -4,19 +4,14 @@ import multiprocessing.queues
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .Analysis import SDOFmodel
-import os
-import sys
 import time
-import datetime
 import traceback
 import multiprocessing
-from typing import Literal
-from collections.abc import Iterable
 
 import h5py
 import loguru
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QWidget
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtWidgets import QMessageBox, QDialog
 
 from NRSAcore.Task import Task
 from NRSAcore.SDOF_solver import *
