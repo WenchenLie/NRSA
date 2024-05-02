@@ -3,12 +3,14 @@ import sys
 import shutil
 import time
 import numpy as np
+import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Literal
 sys.path.append(str(Path(__file__).parent.parent))
 from loguru import logger
 from PyQt5.QtWidgets import QMessageBox
 from NRSAcore.ModelParameter import ModelParameter
+
 
 logger.remove()
 logger.add(
@@ -155,8 +157,65 @@ def decode_list(ls: list[bytes]):
     return ls_new
 
 
+class Curve:
+    def __init__(self,
+        name: str,
+        x_values: np.ndarray,
+        y_values: np.ndarray,
+        x_label: str,
+        y_label: str,
+        label: str,
+        output_dir: Path
+    ):
+        if not len(x_values) == y_values.shape[1]:
+            raise SDOF_Error(f'曲线 {name} 横纵坐标数据量不等（{len(x_values)}, {len(y_values)}）')
+        if not x_values.ndim == 1:
+            raise SDOF_Error(f'曲线 {name} 的横坐标应为一维')
+        if not y_values.ndim == 2:
+            raise SDOF_Error(f'曲线 {name} 的总坐标应为二维')
+        self.name = name
+        self.N = len(y_values)  # 地震动数量
+        self.x_values = x_values
+        self.y_values = y_values
+        self.x_label = x_label
+        self.y_label = y_label
+        self.label = label
+        self.output_dir = output_dir
+        self._statistics()
+    
+    def _statistics(self):
+        """计算统计特征"""
+        # 16、50、84分位线
+        self.pct_16 = np.percentile(self.y_values, 16, axis=0)
+        self.pct_50 = np.percentile(self.y_values, 50, axis=0)
+        self.pct_84 = np.percentile(self.y_values, 84, axis=0)
+        self.mean = np.mean(self.y_values, axis=0)  # 均值
+        self.std = np.std(self.y_values, axis=0)
 
-if __name__ == "__main__":
-    T = generate_period_series(0.1, 1, 0.02)
-    print(T.name)
-    ModelParameter.print_var()
+    def show(self, savefig: bool=False, plotfig=True):
+        """展示曲线
+
+        Args:
+            savefig (bool, optional): 是否保持曲线到输出文件夹，默认False
+            plotfig (bool, optional): 是否绘制曲线图，默认True
+        """
+        label = self.label
+        for i in range(self.N):
+            plt.scatter(self.x_values, self.y_values[i], c='grey', label=label)
+            label = None
+        plt.plot(self.x_values, self.pct_16, c='green', label='pct16')
+        plt.plot(self.x_values, self.pct_50, c='blue', label='pct50')
+        plt.plot(self.x_values, self.pct_84, c='green', label='pct84')
+        plt.plot(self.x_values, self.mean, c='red', label='Meam')
+        # plt.plot(self.x_values, self.std, c='yellow', label='STD')
+        plt.xlabel(self.x_label)
+        plt.ylabel(self.y_label)
+        plt.legend()
+        if savefig:
+            plt.savefig(self.output_dir / f'{self.name}.png', dpi=600)
+        if plotfig:
+            plt.show()
+        plt.close()
+
+
+
