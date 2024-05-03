@@ -23,6 +23,7 @@ PDtSDOF_batched_solver： 可进一步考虑P-Delta效应（同样可批量分�
 """
 
 import sys
+import re
 from math import pi
 from typing import Dict, Tuple, List
 from pathlib import Path
@@ -275,11 +276,11 @@ class _SDOF_solver:
         ops.fix(1, 1, 1, 1)
         ops.fix(2, 0, 1, 1)
         ops.mass(2, self.m, 0, 0)
-        matTag = 0
+        matTag = 1
         for matType, paras in self.materials.items():
+            ops.uniaxialMaterial(matType, matTag, *_update_para(matTag, *paras))
             matTag += 1
-            ops.uniaxialMaterial(matType, matTag, *paras)
-        ops.uniaxialMaterial('Parallel', matTag + 1, *range(1, matTag + 1))
+        ops.uniaxialMaterial('Parallel', matTag + 1, *range(1, matTag))
         ops.element('zeroLength', 1, 1, 2, '-mat', matTag + 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
         ops.region(1, '-ele', 1, '-rayleigh', self.a, 0, self.b, 0)  # Rayleigh阻尼
         ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
@@ -499,7 +500,7 @@ class _SDOF_batched_solver:
             material = self.ls_materials[i]
             matTag_start = matTag
             for matType, paras in material.items():
-                ops.uniaxialMaterial(matType, matTag, *paras)
+                ops.uniaxialMaterial(matType, matTag, *_update_para(matTag, *paras))
                 matTag += 1
             ops.uniaxialMaterial('Parallel', matTag, *range(matTag_start, matTag))
             ctrlMats.append(matTag)
@@ -762,7 +763,7 @@ class _PDtSDOF_batched_solver:
             material = self.ls_materials[i]
             matTag_start = matTag
             for matType, paras in material.items():
-                ops.uniaxialMaterial(matType, matTag, *paras)
+                ops.uniaxialMaterial(matType, matTag, *_update_para(matTag, *paras))
                 matTag += 1
             ops.uniaxialMaterial('Parallel', matTag, *range(matTag_start, matTag))
             ctrlMats.append(matTag)
@@ -984,6 +985,26 @@ class _PDtSDOF_batched_solver:
         return self.results
 
 
+def _update_para(matTag: int, *paras: float | str):
+    """将材料参数中的 ^ 替换为引用的编号，有多少个 ^ 就代表引用前多少个材料的编号
+
+    Args:
+        matTag (int): 当前材料的编号
+        paras (float | str): 材料参数
+    """
+    para_new = []
+    for para in paras:
+        res = re.findall(r'^\^+$', str(para))
+        if res:
+            refTag = matTag - len(res[0])
+            if refTag < 1:
+                raise SDOF_Error(f'引用材料编号小于1\n{paras}')
+            para_new.append(refTag)
+        else:
+            para_new.append(para)
+    return para_new
+
+
 
 if __name__ == "__main__":
     ls_T = tuple(0.2 for _ in range(1))
@@ -993,13 +1014,14 @@ if __name__ == "__main__":
     gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
     dt = 0.01
     materials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
-    PDtMaterials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
+    # PDtMaterials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
+    PDtMaterials = ({'Steel01': (3924, 986.9604401089356, 0.0), 'Parallel': ('^')},)
     material = {'Steel01': (3924, 986.9604401089356, 0.0)}
     with SDOF_Helper(suppress=False):
-        # results = SDOF_batched_solver(2, ls_T, gm, dt, materials, [2]*3)
+        # results = SDOF_batched_solver(1, ls_T, gm, dt, materials, [2])
 
         # for i in range(3):
-        #     results = SDOF_solver(T, gm, dt, material, uy=3.9758432461253355, fv_duration=0)
+        #     results = SDOF_solver(T, gm, dt, material, uy=3.9758432461253355, fv_duration=0, SF=1)
 
         results = PDtSDOF_batched_solver(1, (h,), ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[3.9758432461253355]*1, fv_duration=0, ls_collapse_disp=(105,), ls_SF=(5.984352224424968,))
     print(results)
