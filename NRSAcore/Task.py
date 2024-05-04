@@ -33,13 +33,22 @@ class Task:
     dir_main = Path(__file__).parent.parent
     dir_temp = dir_main / 'temp'
     dir_input = dir_main / 'Input'
+    dir_output = dir_main / 'Output'
     dir_gm = dir_input / 'GMs'
 
 
-    def __init__(self):
+    def __init__(self, model_name: str, output_dir: str | Path):
+        """创建一个分析任务
+
+        Args:
+            model_name (str): 模型名称
+            output_dir (str | Path): 输出文件夹
+        """
+        self.model_name = model_name
+        self.output_dir = output_dir
         self.logger = LOGGER
         self.logger.success('欢迎使用非线性反应谱分析程序')
-        utils.creat_folder(self.dir_temp, 'overwrite')
+        utils.creat_folder(output_dir, 'overwrite')
         # 所有用到的模型参数（1-常数，2-独立参数，3-从属参数）
         self.paras: dict[str, tuple[int | float | list, Literal[1, 2, 3]]] = {}
         self.GM_N = 0
@@ -274,7 +283,7 @@ class Task:
 
     def scale_ground_motions(self,
             method: str, para, path_spec_code: Path=None, SF_code: float=1.0, save_SF=False,
-            plot=True, save_unscaled_spec=False, save_scaled_spec=False):
+            plot=True, save_unscaled_spec=False, save_scaled_spec=True):
         """缩放地震动
 
         Args:
@@ -428,6 +437,8 @@ class Task:
             np.savetxt(self.dir_temp / 'Unscaled_RSD_pct.txt', pct_D, fmt='%.5f')
             self.logger.info(f'已保存未缩放反应谱至temp文件夹')
         if save_scaled_spec:
+            # 保存反应谱数据
+            spec_data = {}
             data_RSA = np.zeros((len(T), self.GM_N + 1))
             data_RSV = np.zeros((len(T), self.GM_N + 1))
             data_RSD = np.zeros((len(T), self.GM_N + 1))
@@ -438,29 +449,39 @@ class Task:
             data_RSV[:, 1:] = self.scaled_GM_RSV.T
             data_RSD[:, 1:] = self.scaled_GM_RSD.T
             pct_A, pct_V, pct_D = np.zeros((len(T), 3)), np.zeros((len(T), 3)), np.zeros((len(T), 3))
-            for i in range(len(T)):
-                pct_A[i, 0] = np.percentile(data_RSA[i, 1:], 16)
-                pct_A[i, 1] = np.percentile(data_RSA[i, 1:], 50)
-                pct_A[i, 2] = np.percentile(data_RSA[i, 1:], 84)
-                pct_V[i, 0] = np.percentile(data_RSV[i, 1:], 16)
-                pct_V[i, 1] = np.percentile(data_RSV[i, 1:], 50)
-                pct_V[i, 2] = np.percentile(data_RSV[i, 1:], 84)
-                pct_D[i, 0] = np.percentile(data_RSD[i, 1:], 16)
-                pct_D[i, 1] = np.percentile(data_RSD[i, 1:], 50)
-                pct_D[i, 2] = np.percentile(data_RSD[i, 1:], 84)
-            np.savetxt(self.dir_temp / 'Scaled_RSA.txt', data_RSA, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSV.txt', data_RSV, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSD.txt', data_RSD, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSA_pct.txt', pct_A, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSV_pct.txt', pct_V, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSD_pct.txt', pct_D, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSA.txt', data_RSA, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSV.txt', data_RSV, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSD.txt', data_RSD, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSA_pct.txt', pct_A, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSV_pct.txt', pct_V, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Scaled_RSD_pct.txt', pct_D, fmt='%.5f')
-            self.logger.info(f'已保存缩放反应谱至temp文件夹')
+            spec_data['T'] = T.tolist()
+            # for i in range(len(T)):
+            #     pct_A[i, 0] = np.percentile(data_RSA[i, 1:], 16)
+            #     pct_A[i, 1] = np.percentile(data_RSA[i, 1:], 50)
+            #     pct_A[i, 2] = np.percentile(data_RSA[i, 1:], 84)
+            #     pct_V[i, 0] = np.percentile(data_RSV[i, 1:], 16)
+            #     pct_V[i, 1] = np.percentile(data_RSV[i, 1:], 50)
+            #     pct_V[i, 2] = np.percentile(data_RSV[i, 1:], 84)
+            #     pct_D[i, 0] = np.percentile(data_RSD[i, 1:], 16)
+            #     pct_D[i, 1] = np.percentile(data_RSD[i, 1:], 50)
+            #     pct_D[i, 2] = np.percentile(data_RSD[i, 1:], 84)
+            for i, gm_name in enumerate(self.GM_names):
+                if not gm_name in spec_data.keys():
+                    spec_data[gm_name] = {}
+                spec_data[gm_name]['RSA'] = data_RSA[:, i + 1].tolist()
+                spec_data[gm_name]['RSV'] = data_RSV[:, i + 1].tolist()
+                spec_data[gm_name]['RSD'] = data_RSD[:, i + 1].tolist()
+            # np.savetxt(self.dir_temp / 'Scaled_RSA.txt', data_RSA, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSV.txt', data_RSV, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSD.txt', data_RSD, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSA_pct.txt', pct_A, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSV_pct.txt', pct_V, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSD_pct.txt', pct_D, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSA.txt', data_RSA, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSV.txt', data_RSV, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSD.txt', data_RSD, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSA_pct.txt', pct_A, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSV_pct.txt', pct_V, fmt='%.5f')
+            # np.savetxt(self.dir_temp / 'Scaled_RSD_pct.txt', pct_D, fmt='%.5f')
+            with open(self.dir_temp / f'{self.model_name}_spectra.json', 'w') as f:
+                json.dump(spec_data, f, indent=4)
+            self.logger.info('已生成: ' + str((self.dir_temp / f'{self.model_name}_spectra.json').absolute()))
+            self.logger.success(f'已保存反应谱数据至temp文件夹')
         plt.subplot(131)
         if method == 'a':
             plt.scatter(0, Sa_code[0], color='blue', zorder=99999)
@@ -502,21 +523,19 @@ class Task:
         self.scaling_finished = True
 
 
-    def generate_models(self, dir_path: Path | str=None, file_name: str=None) -> dict:
+    def generate_models(self, dir_path: Path | str=None) -> dict:
         """生成所有SDOF模型的参数，并将SDOF计算任务导出为json或返回一个字典
 
         Args:
             dir_path (Path | str, optional): json文件的导出路径文件夹，若为None给则不导出
-            file_name (str, optional): json文件名
 
         Returns:
             dict: 保护计算任务信息的字典
         """
         self._set_task_info()  # 写入task_info
-        if dir_path and file_name:
-            dir_path = Path(dir_path)
-            with open(dir_path / f'{file_name}.json', 'w') as f:
-                f.write(json.dumps(self.task_info, indent=4))
+        with open(self.dir_temp / f'{self.model_name}.json', 'w') as f:
+            f.write(json.dumps(self.task_info, indent=4))
+        self.logger.info('已生成: ' + str((self.dir_temp / f'{self.model_name}.json').absolute()))
         self.logger.success(f'共生成 {self.N_SDOF} 个SDOF模型')
         return self.task_info
 

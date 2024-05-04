@@ -1,5 +1,6 @@
 import sys
 import json
+from math import isclose
 from pathlib import Path
 from typing import Callable, Literal
 if __name__ == "__main__":
@@ -62,7 +63,7 @@ class PostProcessing:
         var_x: VAR,
         var_y: VAR,
         *conditions: tuple[VAR, float | int],
-        tol: float=1e-6) -> utils.Curve:
+        ) -> utils.Curve:
         """提取非线性反应谱分析结果
 
         Args:
@@ -70,7 +71,6 @@ class PostProcessing:
             var_x (VAR): 横坐标变量名
             var_y (VAR): 纵坐标变量名
             condition (tuple[VAR, float | int]): 约束条件
-            tol (float, optional): 判断约束条件中的等式时的可接受相对误差，
             两个变量的相对误差值若小于该值则可认为相等
 
         Returns (utils.Curve): 返回一个Curve对象
@@ -94,7 +94,7 @@ class PostProcessing:
         for condition in conditions:
             para_name, value = condition
             for n, paras in self.model['SDOF_models'].items():
-                if not self._isequal(paras[para_name], value, tol) and n in available_models:
+                if not isclose(paras[para_name], value) and n in available_models:
                     available_models.remove(n)
         if len(available_models) == 0:
             raise utils.SDOF_Error(f'无法找到符合约束条件的参数值')
@@ -202,7 +202,7 @@ class PostProcessing:
 if __name__ == "__main__":
     results = PostProcessing(
         Path(__file__).parent.parent/'Output'/'model.h5',
-        Path(__file__).parent.parent/'temp'/'model.json',
+        Path(__file__).parent.parent/'temp'/'TestModel.json',
         Path(__file__).parent.parent/'Output')
     # 应能运行ndarray类型的计算
     miu = lambda maxDisp, uy: maxDisp / uy

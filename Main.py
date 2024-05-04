@@ -7,8 +7,8 @@ from NRSAcore.Task import Task
 
 if __name__ == "__main__":
 
-    g = 9810
-    task = Task()
+    g = 9800
+    task = Task('TestModel', 'temp')
     
     # 1 定义模型参数
     # (1) 常数型参数
@@ -64,5 +64,5 @@ if __name__ == "__main__":
     task.scale_ground_motions('j', (1, 2, 2), plot=False)
 
     # 5 导出模型
-    task.generate_models('temp', 'model')
+    task.generate_models()
 

@@ -393,4 +393,3 @@ def _write_result(
     else:
         lock.release()
         return
-
