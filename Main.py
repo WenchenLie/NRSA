@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
     # 4 定义地震动
     task.select_ground_motions([f'th{i}'for i in range(1, 8)], '.th')
-    task.scale_ground_motions('j', (1, 2, 2), plot=False)
+    task.scale_ground_motions('e', None, plot=True)
 
     # 5 导出模型
     task.generate_models()

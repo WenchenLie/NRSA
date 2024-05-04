@@ -218,4 +218,14 @@ class Curve:
         plt.close()
 
 
+def get_y(x_line: np.ndarray, y_line: np.ndarray, x: float | int) -> float:
+    """获取曲线在某横坐标值处的纵坐标"""
+    if x < min(x_line) or x > max(x_line):
+        raise SDOF_Error(f'横坐标值{x}超出曲线横坐标范围({min(x_line)}, {max(x_line)})')
+    for i in range(1, len(x_line)):
+        if x_line[i - 1] <= x <= x_line[i]:
+            k = (y_line[i] - y_line[i - 1]) / (x_line[i] - x_line[i - 1])
+            y = y_line[i - 1] + k * (x - x_line[i - 1])
+            break
+    return y
 

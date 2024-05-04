@@ -292,7 +292,7 @@ class Task:
             * [b] 按Sa(T=Ta)匹配反应谱, para=Ta  
             * [c] 按Sa(Ta) ~ Sa(Tb)匹配反应谱, para=(Ta, Tb)  
             * [d] 指定PGA, para=PGA  
-            * [e] 不缩放  
+            * [e] 不缩放, para=None  
             * [f] 指定相同缩放系数, para=SF  
             * [g] 按文件指定, para=path: str (如'temp/GM_SFs.txt')，文件包含一列n行个数据  
             * [h] 按Sa,avg(T1, T2)匹配反应谱，即T1~T2间的加速度谱值的几何平均数，para=(T1, T2)  
