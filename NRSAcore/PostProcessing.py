@@ -156,7 +156,7 @@ class PostProcessing:
         for condition in conditions:
             label_ls.append(f'{condition[0]}={condition[1]}')
         label = ', '.join(label_ls)
-        curve = utils.Curve(name, x_values, y_values, x_name, y_name, label, self.output_dir)
+        curve = utils.Curve(name, x_values, y_values, x_name, y_name, label, self.output_dir, self.GM_names)
         return curve
 
 
@@ -253,19 +253,22 @@ class PostProcessing:
 
 if __name__ == "__main__":
     results = PostProcessing(
-        Path(__file__).parent.parent/'Output'/'model.h5',
+        Path(__file__).parent.parent/'Output'/'TestModel.h5',
         Path(__file__).parent.parent/'temp'/'TestModel.json',
         Path(__file__).parent.parent/'temp'/'TestModel_spectra.json',
         Path(__file__).parent.parent/'Output')
     # 应能运行ndarray类型的计算
     miu = lambda maxDisp, uy: maxDisp / uy
-    R = lambda Fe, Fy: Fe / Fy
+    # R = lambda Fe, Fy: Fe / Fy
     # T = lambda T, uy: T / uy
-    # curve1 = results.generatte_curve('miu-T curve', 'T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.4), ('alpha', 0.05))
+    curve1 = results.generatte_curve('miu-T curve', 'T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.5), ('alpha', 0))
     # curve2 = results.generatte_curve('u-T curve', 'T', 'resDisp', ('Cy', 0.4), ('alpha', 0.05))
-    curve3 = results.generatte_curve('R-T curve', 'T', ('R', R, 'Fe', 'Fy'), ('Cy', 0.4), ('alpha', 0.05))
-    # curve1.show(True)
+    # curve3 = results.generatte_curve('R-T curve', 'T', ('R', R, 'Fe', 'Fy'), ('Cy', 0.4), ('alpha', 0))
+    # curve4 = results.generatte_curve('u-T curve', 'T', 'maxDisp', ('Cy', 0.4), ('alpha', 0))
+    # curve4 = results.generatte_curve('u-T curve', 'T', 'maxDisp', ('Cy', 0.4), ('alpha', 0))
+    curve1.show(True)
     # curve2.show(True)
-    curve3.show()
+    # curve3.show()
+    # curve4.show(True)
     results.export()
 

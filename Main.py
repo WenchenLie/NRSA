@@ -17,9 +17,9 @@ if __name__ == "__main__":
     m = 1
     h = 1
     # (2) 独立参数(通常是无量纲参数)
-    T = np.arange(0.2, 2.2, 0.2)
-    Cy = np.array([0.4, 0.8, 1.2])
-    alpha = [0, 0.05, 0.1]
+    T = np.arange(0.02, 6.02, 0.02)
+    Cy = np.array([0.4])
+    alpha = [0]
     # (3) 从属参数(通常直接用于SDOF计算的参数)
     get_Fy = lambda m, Cy: m * g * Cy  # 与m, Cy相关
     get_k = lambda T, m: 4 * pi**2 / T**2 * m  # 与T, m相关
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     task.set_materials(material)
 
     # 4 定义地震动
-    task.select_ground_motions([f'th{i}'for i in range(1, 8)], '.th')
+    task.select_ground_motions([f'th{i}'for i in range(1, 2)], '.th')
     task.scale_ground_motions('e', None, plot=True)
 
     # 5 导出模型

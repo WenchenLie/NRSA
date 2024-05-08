@@ -140,11 +140,11 @@ class SDOFmodel:
 
 
 if __name__ == "__main__":
-    model = SDOFmodel(json_file=Path(__file__).parent.parent/'temp'/'model.json')
+    model = SDOFmodel(json_file=Path(__file__).parent.parent/'temp'/'TestModel.json')
     model.set_analytical_options(
         Path(__file__).parent.parent / 'Output',
         'constant_strength',
-        PDelta=True,
+        PDelta=False,
         batch=10,
         auto_quit=False,
         parallel=10

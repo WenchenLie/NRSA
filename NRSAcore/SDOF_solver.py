@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
 
 def SDOF_solver(
-        T: int,
+        T: int | float,
         gm: np.ndarray,
         dt: float,
         materials: Dict[str, tuple],
@@ -71,7 +71,7 @@ def SDOF_solver(
     模型结构为两个具有相同位置的结点，中间采用zeroLength单元连接。
 
     Args:
-        T (float): 周期
+        T (int | float): 周期
         gm (np.ndarray): 地震动加速度时程（单位为g）
         dt (float): 时程步长
         materials (Dict[str, tuple]): 材料属性，包括材料名和参数（不包括编号）
@@ -234,7 +234,7 @@ def PDtSDOF_batched_solver(
 
 class _SDOF_solver:
     def __init__(self,
-            T: int,
+            T: int | float,
             gm: np.ndarray,
             dt: float,
             materials: Dict[str, tuple],
@@ -384,7 +384,6 @@ class _SDOF_solver:
     def get_responses(self, input_result: tuple[float]) -> Tuple:
         """获取分析结果
         """
-        # t.append(ops.getTime())
         maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, u_old,\
             F_Hys_old, F_Ray_old, u_cent, *_ = input_result
         # 最大相对位移
@@ -424,11 +423,21 @@ class _SDOF_solver:
                 u_cent -= u_cent - self.uy - u
             else:
                 CPD += 0
+        if __name__ == "__main__":
+            t.append(ops.getTime())
+            A.append(a)
+            V.append(v)
+            U.append(u)
+            A_BASE.append(ops.nodeAccel(1, 1))
+            U_BASE.append(ops.nodeDisp(1, 1))
+            F_LINK.append(F_Hys)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, u,\
             F_Hys, F_Ray, u_cent
         # 12个参数
+
+            
         
     def get_results(self) -> dict[str, bool | float]:
         return self.results
@@ -674,6 +683,14 @@ class _SDOF_batched_solver:
                 else:
                     CPD[i] += 0
                 ls_u_cent[i] = u_cent
+        if __name__ == "__main__":
+            t.append(ops.getTime())
+            A.append(a)
+            V.append(v)
+            U.append(u)
+            A_BASE.append(ops.nodeAccel(1, 1))
+            U_BASE.append(ops.nodeDisp(1, 1))
+            F_LINK.append(F_Hys)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, ls_u,\
@@ -974,6 +991,14 @@ class _PDtSDOF_batched_solver:
                 else:
                     CPD[i] += 0
                 ls_u_cent[i] = u_cent
+        if __name__ == "__main__":
+            t.append(ops.getTime())
+            A.append(a)
+            V.append(v)
+            U.append(u)
+            A_BASE.append(ops.nodeAccel(1, 1))
+            U_BASE.append(ops.nodeDisp(1, 1))
+            F_LINK.append(F_Hys)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, ls_u,\
@@ -1008,7 +1033,14 @@ def _update_para(matTag: int, *paras: float | str):
 
 if __name__ == "__main__":
     ls_T = tuple(0.2 for _ in range(1))
-    T = 0.2
+    T = 0.005
+    Cy = 10
+    alpha = 0
+    m = 1
+    Fy = m * 9800 * Cy
+    k = 4 * pi**2 / T**2 * m
+    uy = Fy / k
+    print(Fy, k)
     h = 1
     ls_grav = (0,) * 1
     gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
@@ -1016,19 +1048,19 @@ if __name__ == "__main__":
     materials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
     # PDtMaterials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
     PDtMaterials = ({'Steel01': (3924, 986.9604401089356, 0.0), 'Parallel': ('^')},)
-    material = {'Steel01': (3924, 986.9604401089356, 0.0)}
+    material = {'Steel01': (Fy, k, alpha)}
     with SDOF_Helper(suppress=False):
         # results = SDOF_batched_solver(1, ls_T, gm, dt, materials, [2])
 
-        # for i in range(3):
-        #     results = SDOF_solver(T, gm, dt, material, uy=3.9758432461253355, fv_duration=0, SF=1)
+        for i in range(1):
+            results = SDOF_solver(T, gm, dt, material, uy=uy, fv_duration=0, SF=1)
 
-        results = PDtSDOF_batched_solver(1, (h,), ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[3.9758432461253355]*1, fv_duration=0, ls_collapse_disp=(105,), ls_SF=(5.984352224424968,))
+        # results = PDtSDOF_batched_solver(1, (h,), ls_T, ls_grav, gm, dt, PDtMaterials, ls_uy=[3.9758432461253355]*1, fv_duration=0, ls_collapse_disp=(105,), ls_SF=(5.984352224424968,))
     print(results)
     # print(state)
     # print(result[8][0])
-    # plt.plot(t, A)
-    # plt.show()
+    plt.plot(U, F_LINK)
+    plt.show()
     # np.savetxt(r'F:\NRSA\temp\t.txt', t)
     # np.savetxt(r'F:\NRSA\temp\A.txt', A)
 

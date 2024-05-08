@@ -3,6 +3,7 @@ import sys
 import shutil
 import time
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Literal
@@ -165,7 +166,8 @@ class Curve:
         x_label: str,
         y_label: str,
         label: str,
-        output_dir: Path
+        output_dir: Path,
+        gm_names: list[str]
     ):
         if not len(x_values) == y_values.shape[1]:
             raise SDOF_Error(f'曲线 {name} 横纵坐标数据量不等（{len(x_values)}, {len(y_values)}）')
@@ -181,6 +183,7 @@ class Curve:
         self.y_label = y_label
         self.label = label
         self.output_dir = output_dir
+        self.gm_names = gm_names
         self._statistics()
     
     def _statistics(self):
@@ -192,11 +195,11 @@ class Curve:
         self.mean = np.mean(self.y_values, axis=0)  # 均值
         self.std = np.std(self.y_values, axis=0)
 
-    def show(self, savefig: bool=False, plotfig=True):
+    def show(self, save_result: bool=False, plotfig=True):
         """展示曲线
 
         Args:
-            savefig (bool, optional): 是否保持曲线到输出文件夹，默认False
+            save_result (bool, optional): 是否保持曲线到输出文件夹，默认False
             plotfig (bool, optional): 是否绘制曲线图，默认True
         """
         label = self.label
@@ -211,8 +214,18 @@ class Curve:
         plt.xlabel(self.x_label)
         plt.ylabel(self.y_label)
         plt.legend()
-        if savefig:
+        if save_result:
             plt.savefig(self.output_dir / f'{self.name}.png', dpi=600)
+            df = pd.DataFrame()
+            df[self.x_label] = self.x_values
+            for i, gm_name in enumerate(self.gm_names):
+                df[gm_name] = self.y_values[i]
+            df['16%'] = self.pct_16
+            df['50%'] = self.pct_50
+            df['84%'] = self.pct_84
+            df['Mean'] = self.mean
+            df['STD'] = self.std
+            df.to_csv(self.output_dir / f'{self.name}.csv', index=None)
         if plotfig:
             plt.show()
         plt.close()
