@@ -7,6 +7,7 @@ from typing import Literal, Callable
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
+import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -155,7 +156,7 @@ class Task:
             period: str,
             mass: str,
             damping: str,
-            gravity: str,
+            gravity: str=None,
             height: str=None,
             yield_disp: str=None,
             yield_strength: str=None,
@@ -168,7 +169,7 @@ class Task:
             period (str): 周期
             mass (str): 质量
             damping (str): 阻尼比
-            gravity (str): 竖向荷载
+            gravity (str, optional): 竖向荷载
             height (str, optional): 等效SDOF的高度（用于考虑P-Delta）
             yield_disp (str, optional): 屈服位移（用于计算累积塑性位移）
             yield_strength (str, optional): 屈服强度（用于不断调整以计算等延性谱）
@@ -283,7 +284,7 @@ class Task:
 
     def scale_ground_motions(self,
             method: str, para, path_spec_code: Path=None, SF_code: float=1.0, save_SF=False,
-            plot=True, save_unscaled_spec=False, save_scaled_spec=True):
+            plot=True, save_unscaled_spec=False, save_scaled_spec=True, spec_from_h5: str | Path=None):
         """缩放地震动
 
         Args:
@@ -302,11 +303,12 @@ class Task:
             para: 地震动缩放所需参数，与`method`的取值有关  
             path_spec_code (Path): 目标谱的文件路径，文件应包含两列数据，为周期和加速度谱值  
             SF_code (float, optional): 读取目标谱时将目标谱乘以一个缩放系数，默认为1  
-            save (bool, optional): 是否保存缩放后的缩放系数(将保存至temp文件夹，
+            save (bool, optional): 是否保存缩放后的缩放系数(将保存至temp文件夹)，
             可以作为`method`取'g'时`para`参数对应的文件路径，默认为False  
             plot (bool, optional): 是否绘制缩放后地震动反应谱与目标谱的对比图，默认为True  
             save_unscaled_spec (bool, optional): 是否保存未缩放地震动反应谱，默认False  
-            save_scaled_spec (bool, optional): 是否保存缩放后地震动反应谱，默认False
+            save_scaled_spec (bool, optional): 是否保存缩放后地震动反应谱，默认False  
+            spec_from_h5 (str | Path. optional): 是否可以从PEER波库文件中读取反应谱(可传入Spectra.hdf5文件的路径)
         """
         self.method = method
         self.th_para = para
@@ -321,6 +323,7 @@ class Task:
             Sa_code = None
             Sv_code = None
             Sd_code = None
+        omega = 2 * pi / T
         self.T = T
         self.scaled_GM_RSA = np.zeros((self.GM_N, len(T)))
         self.scaled_GM_RSV = np.zeros((self.GM_N, len(T)))
@@ -332,12 +335,17 @@ class Task:
         self.GM_RSV = np.zeros((self.GM_N, len(T)))
         self.GM_RSD = np.zeros((self.GM_N, len(T)))
         is_print = True
+        if spec_from_h5:
+            spec_file = h5py.File(spec_from_h5, 'r')
         for idx, gm_name in enumerate(self.GM_names):
             print(f'正在缩放地震动...({idx+1}/{self.GM_N})     \r', end='')
             th = np.loadtxt(self.dir_gm / f'{gm_name}{self.suffix}')
-            RSA, RSV, RSD = Spectrum(ag=th, dt=self.GM_dts[idx], T=T)  # 计算地震动反应谱
-            th = np.loadtxt(self.dir_gm / f'{gm_name}{self.suffix}')
-            RSA, RSV, RSD = Spectrum(ag=th, dt=self.GM_dts[idx], T=T)  # 计算地震动反应谱
+            if spec_from_h5 is None:
+                RSA, RSV, RSD = Spectrum(ag=th, dt=self.GM_dts[idx], T=T)  # 计算地震动反应谱
+            else:
+                RSA = spec_file[gm_name][:][:len(T)]
+                RSD = RSA / omega**2
+                RSV = RSA / omega
             self.GM_RSA[idx] = RSA
             self.GM_RSV[idx] = RSV
             self.GM_RSD[idx] = RSD    
@@ -402,6 +410,8 @@ class Task:
             if save_SF:
                 np.savetxt(self.dir_temp / 'GM_SFs.txt', self.GM_SF)  # 保存缩放系数
                 np.savetxt(self.dir_temp / 'GM_SFs.txt', self.GM_SF)  # 保存缩放系数
+        if spec_from_h5:
+            spec_file.close()
         if save_unscaled_spec:
             data_RSA = np.zeros((len(T), self.GM_N + 1))
             data_RSV = np.zeros((len(T), self.GM_N + 1))

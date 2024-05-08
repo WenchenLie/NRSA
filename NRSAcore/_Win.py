@@ -253,7 +253,6 @@ def _run_constant_strength(*args, **kwargs):
                 T = task_info['SDOF_models'][n][T_name]
                 zeta = task_info['SDOF_models'][n][zeta_name]
                 m = task_info['SDOF_models'][n][m_name]
-                P = task_info['SDOF_models'][n][P_name]
                 uy = task_info['SDOF_models'][n][uy_name]
                 materials = _parse_material(task_info, n)
                 if collapseDisp_name:

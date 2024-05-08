@@ -115,7 +115,7 @@ class SDOFmodel:
                 PDelta = True
             else:
                 raise SDOF_Error(f'未知求解器类型：{solver}')
-        from _Win import FUNC
+        from NRSAcore._Win import FUNC
         solver_name = FUNC[func_type].__name__
         self.logger.info(f'SDOF求解器：{solver_name}')
         self.func_type = func_type
@@ -140,14 +140,14 @@ class SDOFmodel:
 
 
 if __name__ == "__main__":
-    model = SDOFmodel(json_file=Path(__file__).parent.parent/'temp'/'TestModel.json')
+    model = SDOFmodel(json_file=Path(__file__).parent.parent/'temp'/'LCF.json')
     model.set_analytical_options(
         Path(__file__).parent.parent / 'Output',
         'constant_strength',
         PDelta=False,
-        batch=10,
+        batch=100,
         auto_quit=False,
-        parallel=10
+        parallel=20
     )
     model.run()
 

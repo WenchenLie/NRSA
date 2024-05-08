@@ -166,3 +166,5 @@ test.py
 /__pycache__
 QuickConvert.bat
 ui2py_Converter.py
+Output
+temp
