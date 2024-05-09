@@ -63,13 +63,24 @@ class _Win(QDialog):
             self.ui.label_5.setText('P-Delta效应：不考虑')
         self.ui.label_3.setText(f'SDOF数量：{self.task.N_SDOF}')
         self.ui.label_8.setText(f'SDOF求解器：{FUNC[self.task.func_type].__name__}')
+        self.ui.pushButton_3.clicked.connect(self.pause_resume)
         
-
         
     def kill(self):
         """点击中断按钮"""
         if QMessageBox.question(self, '警告', '是否中断计算？') == QMessageBox.Yes:
             self.worker.kill()
+
+
+    def pause_resume(self):
+        """暂停或恢复计算"""
+        if self.ui.pushButton_3.text() == '暂停':
+            self.ui.pushButton_3.setText('继续')
+            self.ui.groupBox_2.setTitle('计算信息（已暂停）')
+        else:
+            self.ui.pushButton_3.setText('暂停')
+            self.ui.groupBox_2.setTitle('计算信息')
+        self.worker.pause_resume()
 
 
     def run(self):
@@ -110,12 +121,21 @@ class Worker(QThread):
         self.win = win
         self.logger = self.win.logger
         self.queue = multiprocessing.Manager().Queue()  # 进程通信
-        self.stop_event = multiprocessing.Manager().Event()  # 触发事件
+        self.stop_event = multiprocessing.Manager().Event()  # 中断事件
+        self.pause_event = multiprocessing.Manager().Event()  # 暂停事件
+        self.pause_event.set()
         self.lock = multiprocessing.Manager().Lock()  # 进程锁
         
     def kill(self):
         """中断计算"""
         self.stop_event.set()
+
+    def pause_resume(self):
+        """暂定或恢复计算"""
+        if self.pause_event.is_set():
+            self.pause_event.clear()
+        else:
+            self.pause_event.set()
 
     def run(self):
         """开始运行子线程"""
@@ -153,11 +173,12 @@ class Worker(QThread):
         ls_paras: list[tuple] = []
         queue = self.queue
         stop_event = self.stop_event
+        pause_event = self.pause_event
         self.output_h5 = self.task.dir_output / f'{self.task.model_name}.h5'
         for gm_name, (dt, SF) in self.task.task['ground_motions']['dt_SF'].items():
             suffix = self.task.task['ground_motions']['suffix']
             gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
-            args = (queue, stop_event, self.lock, self.output_h5, self.task.func_type, self.task.task, self.ls_batch,
+            args = (queue, stop_event, pause_event, self.lock, self.output_h5, self.task.func_type, self.task.task, self.ls_batch,
                     gm, dt, self.task.fv_duration, SF, self.task.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.task.parallel) as pool:
@@ -216,6 +237,7 @@ def _run_constant_strength(*args, **kwargs):
     """
     queue: multiprocessing.Queue
     stop_event: multiprocessing.Event
+    pause_event: multiprocessing.Event
     lock: multiprocessing.Lock
     output_h5: Path
     func_type: int
@@ -228,9 +250,8 @@ def _run_constant_strength(*args, **kwargs):
     g: float
     gm_name: float
     try:
-        queue, stop_event, lock, output_h5, func_type, task_info, ls_batch,\
+        queue, stop_event, pause_event, lock, output_h5, func_type, task_info, ls_batch,\
         gm, dt, fv_duration, SF, g, gm_name = args
-
         func = FUNC[func_type]
         T_name = task_info['basic_para']['period']
         zeta_name = task_info['basic_para']['damping']
@@ -250,6 +271,7 @@ def _run_constant_strength(*args, **kwargs):
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
+                pause_event.wait()
                 T = task_info['SDOF_models'][n][T_name]
                 zeta = task_info['SDOF_models'][n][zeta_name]
                 m = task_info['SDOF_models'][n][m_name]
@@ -274,6 +296,7 @@ def _run_constant_strength(*args, **kwargs):
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
+                pause_event.wait()
                 N_SDOFs = len(batch)
                 ls_T = tuple(task_info['SDOF_models'][str(n)][T_name] for n in batch)
                 ls_materials = tuple(_parse_material(task_info, str(n)) for n in batch)
@@ -300,6 +323,7 @@ def _run_constant_strength(*args, **kwargs):
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
+                pause_event.wait()
                 N_SDOFs = len(batch)
                 ls_h = tuple(task_info['SDOF_models'][str(n)][h_name] for n in batch)
                 ls_T = tuple(task_info['SDOF_models'][str(n)][T_name] for n in batch)

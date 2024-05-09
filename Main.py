@@ -12,7 +12,6 @@ def generate_task():
     g = 9800
     task = Task('LCF', 'temp')
     Task.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     
     # 1 定义模型参数
     # (1) 常数型参数
@@ -91,7 +90,8 @@ def analysis():
 
 
 if __name__ == "__main__":
-
+    
+    _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     # generate_task()
     analysis()
 
