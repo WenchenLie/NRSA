@@ -69,8 +69,10 @@ class PostProcessing:
         self.spec_data = spec_data
         self.T_spec = np.array(spec_data['T'])
         self.curves: list[utils.Curve] = []
-        self.GM_N = len(model['ground_motions']['dt_SF'])
+        self.GM_N = len(model['ground_motions']['dt_SF'])  # 地震动数量
         self.GM_names = list(model['ground_motions']['dt_SF'].keys())
+        self.N_SDOFs = len(model['SDOF_models'])  # 每条地震动要计算的SDOF数量
+        self.total_num = self.N_SDOFs * self.GM_N  # SDOF的总计算数量
 
 
     def generatte_curve(self,
@@ -160,12 +162,50 @@ class PostProcessing:
         return curve
 
 
-    def export(self):
-        pass  # TODO
+    def to_csv(self, x_vars: list[VAR], y_vars: list[VAR]):
+        """将所关注的变量值导出到x.csv和y.csv文件，可直接用于机器学习训练。
+        变量名可选用结果文件中的响应类型、模型文件中的变量、以及['PGA', 'PGV', 'SaT1']
+        （分别表示不同的地震动强度指标）
+
+        Args:
+            x_vars (list[VAR]): 自变量
+            y_vars (list[VAR]): 因变量
+        """
+        other_var_names = ['PGA', 'PGV', 'SaT1']
+        x_values = np.zeros((self.total_num, len(x_vars)))  # 自变量矩阵
+        x_values = np.zeros((self.total_num, len(y_vars)))  # 因变量矩阵
+        for x_var in x_vars:
+            self._var_isexists(x_var, 'both', other_var_names)
+        idx_line = 0
+        for i, gm_name in enumerate(self.h5):
+            if gm_name == 'response_type':
+                continue
+            print(f'\r正在读取地震动：{i+1} / {self.GM_N} ', end='')
+            for n in self.h5[gm_name]:
+                idx_col = 0
+                for x_var in x_vars:
+                    if isinstance(x_var, str):
+                        # x_var是一个直接给出的变量
+                        x_name = x_var
+                        value = self._get_value(x_name, n, 'both', gm_name)
+                    else:
+                        # x_var需要通过其他参数计算得到
+                        x_name, func = x_var[: 2]  # 变量名和函数
+                        other_vars_names = x_var[2:]  # 其他参数的名称
+                        other_vars_values = []  # 其他参数的值
+                        for var_name in other_vars_names:
+                            other_vars_values.append(self._get_value(var_name, n, 'both', gm_name))
+                        value = func(*other_vars_values)
+                    idx_col += 1
+                idx_line += 1
+
+
+
+    def end(self):
         self.h5.close()
 
 
-    def _var_isexists(self, var: VAR, source: Literal['model', 'result', 'spec', 'both']):
+    def _var_isexists(self, var: VAR, source: Literal['model', 'result', 'spec', 'both'], other_names: list=[]):
         """检查变量是否在模型文件或结果文件中定义"""
         src: dict[str, list] = {
             'model': self.model['para_name'],  # 参数来自.json模型文件
@@ -176,6 +216,8 @@ class PostProcessing:
         var_names = src[source]
         if isinstance(var, str):
             if var in var_names:
+                return
+            if var in other_names:
                 return
         elif isinstance(var, tuple):
             var = var[2:]
@@ -189,23 +231,49 @@ class PostProcessing:
         raise utils.SDOF_Error(f'无法在{s[source]}文件找到变量：{var}')
         
 
-    def _get_value(self, name: str, n: str, source: Literal['model', 'result', 'spec', 'both'],
+    def _get_value(self, name: str, n: str, source: Literal['model', 'result', 'spec', 'both'], gm_name: str=None
             ) -> float | np.ndarray:
-        """获取变量的值"""
+        """获取变量的值。如果给定gm_name，则返回一个数(对应于给定的地震动)，若不给定，则返回一个ndarray，包含各条地震动的值"""
         if source == 'model':
             value = self.model['SDOF_models'][n][name]
         elif source == 'result':
             value = np.array([])
             idx = utils.decode_list(self.h5['response_type'][:]).index(name)
-            for gm_name in self.GM_names:
-                value = np.append(value, self.h5[gm_name][n][:][idx])
+            if not gm_name:
+                for gm_name_ in self.GM_names:
+                    value = np.append(value, self.h5[gm_name_][n][:][idx])
+            else:
+                value = self.h5[gm_name][n][:][idx]
         elif source == 'spec':
             period_name = self.model['basic_para']['period']
             mass_name = self.model['basic_para']['mass']
             T_value = self._get_value(period_name, n, 'model')  # 模型定义的周期
             mass_value = self._get_value(mass_name, n, 'model')  # 模型定义的质量
             value = []
-            for gm_name in self.GM_names:
+            if not gm_name:
+                for gm_name_ in self.GM_names:
+                    RSA_spec = self.spec_data[gm_name_]['RSA']  # 地震动反应谱
+                    RSV_spec = self.spec_data[gm_name_]['RSV']
+                    RSD_spec = self.spec_data[gm_name_]['RSD']
+                    ae = utils.get_y(self.T_spec, RSA_spec, T_value)
+                    ve = utils.get_y(self.T_spec, RSV_spec, T_value)
+                    ue = utils.get_y(self.T_spec, RSD_spec, T_value)
+                    Fe = ae * mass_value
+                    Ee = 0.5 * ue * Fe
+                    if name == 'ae':
+                        value.append(ae)
+                    elif name == 've':
+                        value.append(ve)
+                    elif name == 'ue':
+                        value.append(ue)
+                    elif name == 'Fe':
+                        value.append(Fe)
+                    elif name == 'Ee':
+                        value.append(Ee)
+                    else:
+                        raise utils.SDOF_Error(f'不支持的输出类型：{name}')
+                value = np.array(value)
+            else:
                 RSA_spec = self.spec_data[gm_name]['RSA']  # 地震动反应谱
                 RSV_spec = self.spec_data[gm_name]['RSV']
                 RSD_spec = self.spec_data[gm_name]['RSD']
@@ -215,22 +283,21 @@ class PostProcessing:
                 Fe = ae * mass_value
                 Ee = 0.5 * ue * Fe
                 if name == 'ae':
-                    value.append(ae)
+                    value = ae
                 elif name == 've':
-                    value.append(ve)
+                    value = ve
                 elif name == 'ue':
-                    value.append(ue)
+                    value = ue
                 elif name == 'Fe':
-                    value.append(Fe)
+                    value = Fe
                 elif name == 'Ee':
-                    value.append(Ee)
+                    value = Ee
                 else:
                     raise utils.SDOF_Error(f'不支持的输出类型：{name}')
-            value = np.array(value)
         elif source == 'both':
             for src in ['model', 'result', 'spec']:
                 try:
-                    value = self._get_value(name, n, src)
+                    value = self._get_value(name, n, src, gm_name)
                     return value
                 except:
                     pass
@@ -253,22 +320,46 @@ class PostProcessing:
 
 if __name__ == "__main__":
     results = PostProcessing(
-        Path(__file__).parent.parent/'Output'/'TestModel.h5',
-        Path(__file__).parent.parent/'temp'/'TestModel.json',
-        Path(__file__).parent.parent/'temp'/'TestModel_spectra.json',
+        Path(__file__).parent.parent/'Output'/'LCF.h5',
+        Path(__file__).parent.parent/'temp'/'LCF.json',
+        Path(__file__).parent.parent/'temp'/'LCF_spectra.json',
         Path(__file__).parent.parent/'Output')
     # 应能运行ndarray类型的计算
     miu = lambda maxDisp, uy: maxDisp / uy
     # R = lambda Fe, Fy: Fe / Fy
     # T = lambda T, uy: T / uy
-    curve1 = results.generatte_curve('miu-T curve', 'T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.5), ('alpha', 0))
-    # curve2 = results.generatte_curve('u-T curve', 'T', 'resDisp', ('Cy', 0.4), ('alpha', 0.05))
-    # curve3 = results.generatte_curve('R-T curve', 'T', ('R', R, 'Fe', 'Fy'), ('Cy', 0.4), ('alpha', 0))
-    # curve4 = results.generatte_curve('u-T curve', 'T', 'maxDisp', ('Cy', 0.4), ('alpha', 0))
-    # curve4 = results.generatte_curve('u-T curve', 'T', 'maxDisp', ('Cy', 0.4), ('alpha', 0))
-    curve1.show(True)
-    # curve2.show(True)
-    # curve3.show()
-    # curve4.show(True)
-    results.export()
+    cylce = lambda CD, maxDisp: CD / maxDisp / 4
+    # curve1 = results.generatte_curve('TCycle_Cy0.05', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.05), ('alpha', 0.02), ('zeta', 0.05))
+    # curve2 = results.generatte_curve('TCycle_Cy0.1', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
+    # curve3 = results.generatte_curve('TCycle_Cy0.2', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.05))
+    # curve4 = results.generatte_curve('TCycle_Cy0.4', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.4), ('alpha', 0.02), ('zeta', 0.05))
+    # curve5 = results.generatte_curve('TCycle_Cy0.6', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.6), ('alpha', 0.02), ('zeta', 0.05))
+    # curve6 = results.generatte_curve('TCycle_Cy0.8', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.8), ('alpha', 0.02), ('zeta', 0.05))
+    # curve7 = results.generatte_curve('TCycle_a0', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0), ('zeta', 0.05))
+    # curve8 = results.generatte_curve('TCycle_a0.05', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.05), ('zeta', 0.05))
+    # curve9 = results.generatte_curve('TCycle_a0.1', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.1), ('zeta', 0.05))
+    # curve10 = results.generatte_curve('TCycle_a0.2', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.2), ('zeta', 0.05))
+    # curve11 = results.generatte_curve('TCycle_zeta0.02', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.02))
+    # curve12 = results.generatte_curve('TCycle_zeta0.03', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.03))
+    # curve13 = results.generatte_curve('TCycle_zeta0.1', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.1))
+    # curve14 = results.generatte_curve('TCycle_zeta0.2', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.2))
+
+    # curve1.show(True, False)
+    # curve2.show(True, False)
+    # curve3.show(True, False)
+    # curve4.show(True, False)
+    # curve5.show(True, False)
+    # curve6.show(True, False)
+    # curve7.show(True, False)
+    # curve8.show(True, False)
+    # curve9.show(True, False)
+    # curve10.show(True, False)
+    # curve11.show(True, False)
+    # curve12.show(True, False)
+    # curve13.show(True, False)
+    # curve14.show(True, False)
+
+
+    results.to_csv(x_vars=['T', ('miu', miu, 'maxDisp', 'uy')], y_vars=[('miu', miu, 'maxDisp', 'uy')])
+    results.end()
 

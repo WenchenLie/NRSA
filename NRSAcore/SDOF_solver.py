@@ -1,4 +1,5 @@
 """
+----------------- 单自由度时程分析求解器 ----------------------
 共包含三个进行非线性SDOF体系时程分析的函数，
 分别为SDOF_solver、SDOF_batched_solver和PDtSDOF_batched_solver，
 其中
@@ -33,6 +34,9 @@ import matplotlib.pyplot as plt
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 from utils.utils import SDOF_Error, SDOF_Helper
+
+
+__all__ = ['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
 
 
 if __name__ == "__main__":

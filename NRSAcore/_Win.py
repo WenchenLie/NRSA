@@ -7,15 +7,19 @@ if TYPE_CHECKING:
 import time
 import traceback
 import multiprocessing
+from pathlib import Path
 
 import h5py
 import loguru
+import numpy as np
+import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
 from NRSAcore.Task import Task
 from NRSAcore.SDOF_solver import *
 from ui.Win import Ui_Win
+from utils.utils import SDOF_Error
 
 
 FUNC = {
@@ -28,7 +32,6 @@ FUNC = {
 class _Win(QDialog):
 
     dir_main = Path(__file__).parent.parent
-    dir_temp = dir_main / 'temp'
     dir_input = dir_main / 'Input'
     dir_gm = dir_input / 'GMs'
 
@@ -42,6 +45,9 @@ class _Win(QDialog):
         self.ui = Ui_Win()
         self.ui.setupUi(self)
         self.task = task
+        self.model_overview = task.model_overview
+        self.model_paras = task.model_paras
+        self.model_spectra = task.model_spectra
         self.logger = logger
         self.init_ui()
         self.run()
@@ -119,6 +125,9 @@ class Worker(QThread):
         super().__init__()
         self.task = task
         self.win = win
+        self.model_overview = task.model_overview
+        self.model_paras = task.model_paras
+        self.model_spectra = task.model_spectra
         self.logger = self.win.logger
         self.queue = multiprocessing.Manager().Queue()  # 进程通信
         self.stop_event = multiprocessing.Manager().Event()  # 中断事件
@@ -139,31 +148,31 @@ class Worker(QThread):
 
     def run(self):
         """开始运行子线程"""
-        self.divide_tasks()
+        # self.divide_tasks()
         if self.task.analysis_type == 'constant_ductility':
             self.run_constant_ductility()
         elif self.task.analysis_type == 'constant_strength':
             self.run_constant_strength()
 
-    def divide_tasks(self):
-        """划分计算任务"""
-        ls_SDOF = [i + 1 for i in range(self.task.N_SDOF)]  # 所有SDOF模型的序号(1~NSDOF)
-        ls_batch = []  # 同一模型空间下SDOF的序号, list[list[int]]
-        if self.task.batch > 1:
-            while True:
-                ls_batch.append(ls_SDOF[: self.task.batch])
-                del ls_SDOF[: self.task.batch]
-                if not ls_SDOF:
-                    break
-        self.ls_SDOF = ls_SDOF
-        self.ls_batch = ls_batch
+    # def divide_tasks(self):
+    #     """划分计算任务"""
+    #     ls_SDOF = [i + 1 for i in range(self.task.N_SDOF)]  # 所有SDOF模型的序号(1~NSDOF)
+    #     ls_batch = []  # 同一模型空间下SDOF的序号, list[list[int]]
+    #     if self.task.batch > 1:
+    #         while True:
+    #             ls_batch.append(ls_SDOF[: self.task.batch])
+    #             del ls_SDOF[: self.task.batch]
+    #             if not ls_SDOF:
+    #                 break
+    #     self.ls_SDOF = ls_SDOF
+    #     self.ls_batch = ls_batch
 
 
     def run_constant_ductility(self):
         """等延性分析"""
         s = '（多进程）' if self.task.parallel > 1 else ''
         self.logger.success(f'开始进行：等延性谱分析{s}')
-        # TODO
+        ...  # TODO
 
 
     def run_constant_strength(self):
@@ -174,11 +183,16 @@ class Worker(QThread):
         queue = self.queue
         stop_event = self.stop_event
         pause_event = self.pause_event
-        self.output_h5 = self.task.dir_output / f'{self.task.model_name}.h5'
-        for gm_name, (dt, SF) in self.task.task['ground_motions']['dt_SF'].items():
-            suffix = self.task.task['ground_motions']['suffix']
+        lock = self.lock
+        self.model_results = self.task.wkd / f'{self.task.model_name}_results.h5'  # 生成的结果文件
+        suffix = self.model_overview['ground_motions']['suffix']
+        batch = self.task.batch
+        for gm_idx, (gm_name, dt, SF) in self.model_overview['ground_motions']['name_dt_SF'].items():
+            df_paras = self.model_paras[self.model_paras['ground_motion']==int(gm_idx)]
+            ls_SDOF = df_paras['ID'].to_list()
             gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
-            args = (queue, stop_event, pause_event, self.lock, self.output_h5, self.task.func_type, self.task.task, self.ls_batch,
+            args = (queue, stop_event, pause_event, lock, self.model_results,
+                    self.task.func_type, self.model_overview, self.model_paras, ls_SDOF, batch,
                     gm, dt, self.task.fv_duration, SF, self.task.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.task.parallel) as pool:
@@ -214,7 +228,7 @@ class Worker(QThread):
                 if finished_GM == self.task.GM_N:
                     # 所有计算完成
                     self.logger.success('计算完成')
-                    self.logger.success(f'生成结果文件：{self.output_h5}')
+                    self.logger.success(f'生成结果文件：{self.model_results}')
                     self.signal_finish_all.emit()
                     break
 
@@ -223,76 +237,85 @@ class Worker(QThread):
 def _run_constant_strength(*args, **kwargs):
     """SDOF计算函数，每次调用求解一条地震动
 
-    Args:
+    Args (16):
+        queue (multiprocessing.Queue): 进程通信
+        stop_event (multiprocessing.Event): 进程终止事件
+        pause_event (multiprocessing.Event): 进程暂停事件
+        lock (multiprocessing.Lock): 进程锁
+        model_results (Path): 待写入的计算结果文件
         func_type (int): SDOF求解器类型
         * 1 - 单个SDOF求解
         * 2 - 批量SDOF求解
-        * 3 - 批量SDOF求解，同时可考虑P-Delta
-        task_info (dict): task_info字典
-        ls_SDOF (list[int]): ls_SDOF
-        ls_batch (list[list[int]]): ls_batch
-        queue (multiprocessing.queues): 进程通信
+        * 3 - 批量SDOF求解，同时可考虑P-Delta\n
+        model_overview (dict): model_overview字典
+        model_paras (Dataframe): model_paras表格
+        ls_SDOF (list[int]): 该地震动所拥有的SDOF模型编号
+        batch (int): 同一模型空间下所建立的SDOF模型数量
 
-        后续参数见SDOF_solver.py
+        后续参数见SDOF求解器
     """
     queue: multiprocessing.Queue
     stop_event: multiprocessing.Event
     pause_event: multiprocessing.Event
     lock: multiprocessing.Lock
-    output_h5: Path
+    model_results: Path
     func_type: int
-    task_info: dict
-    ls_batch: list[list[int]]
+    model_overview: dict
+    model_paras: pd.DataFrame
+    ls_SDOF: list[int]
+    batch: int
     gm: np.ndarray
     dt: float
     fv_duration: float
     SF: float
     g: float
-    gm_name: float
+    gm_name: str
     try:
-        queue, stop_event, pause_event, lock, output_h5, func_type, task_info, ls_batch,\
-        gm, dt, fv_duration, SF, g, gm_name = args
+        queue, stop_event, pause_event, lock, model_results, func_type, model_overview, model_paras,\
+        ls_SDOF, batch, gm, dt, fv_duration, SF, g, gm_name = args
         func = FUNC[func_type]
-        T_name = task_info['basic_para']['period']
-        zeta_name = task_info['basic_para']['damping']
-        m_name = task_info['basic_para']['mass']
-        P_name = task_info['basic_para']['gravity']
-        h_name = task_info['basic_para']['height']
-        uy_name = task_info['basic_para']['yield_disp']
-        collapseDisp_name = task_info['basic_para']['collapse_disp']
-        maxAnaDisp_name = task_info['basic_para']['maxAnaDisp']
-        mat_paras = task_info['basic_para']['material_paras']
-        materials = task_info['material_format']
-        finished_SDOF = 0
+        T_name: str = model_overview['basic_para']['period']
+        zeta_name: str = model_overview['basic_para']['damping']
+        m_name: str = model_overview['basic_para']['mass']
+        P_name: str = model_overview['basic_para']['gravity']
+        h_name: str = model_overview['basic_para']['height']
+        uy_name: str = model_overview['basic_para']['yield_disp']
+        collapseDisp_name: str = model_overview['basic_para']['collapse_disp']
+        maxAnaDisp_name: str = model_overview['basic_para']['maxAnaDisp']
+        mat_paras = model_overview['basic_para']['material_paras']
+        materials = model_overview['material_format']
+        finished_SDOF = 0  # 该地震动下已经计算完成的SDOF的数量
         # (n: SDOF模型的序号)
         if func_type == 1:
-            for n in task_info['SDOF_models'].keys():
-                # n: str
+            for n in ls_SDOF:
+                n: int
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
                 pause_event.wait()
-                T = task_info['SDOF_models'][n][T_name]
-                zeta = task_info['SDOF_models'][n][zeta_name]
-                m = task_info['SDOF_models'][n][m_name]
-                uy = task_info['SDOF_models'][n][uy_name]
-                materials = _parse_material(task_info, n)
+                line = model_paras[model_paras['ID']==n]
+                T = line[T_name].item()
+                zeta = line[zeta_name].item()
+                m = line[m_name].item()
+                uy = line[uy_name].item()
+                materials = _parse_material(model_overview, model_paras, n)
                 if collapseDisp_name:
-                    collapseDisp = task_info['SDOF_models'][n][collapseDisp_name]
+                    collapseDisp = line[collapseDisp_name].item()
                 else:
                     collapseDisp = 1e10
                 if maxAnaDisp_name:
-                    maxAnaDisp = task_info['SDOF_models'][n][maxAnaDisp_name]
+                    maxAnaDisp = line[maxAnaDisp_name].item()
                 else:
                     maxAnaDisp = 2e10
                 result = SDOF_solver(T, gm, dt, materials, uy, fv_duration, SF, zeta, m, g,
                             collapseDisp, maxAnaDisp)
-                res = _write_result(output_h5, result, gm_name, n, lock)
+                res = _write_result(model_results, result, gm_name, n, lock)
                 if res:
                     raise res
                 finished_SDOF += 1
         elif func_type == 2:
-            for batch in ls_batch:
+            ls_batches = _split_batch(ls_SDOF, batch)
+            for ls_batch in ls_batches:
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
@@ -314,7 +337,7 @@ def _run_constant_strength(*args, **kwargs):
                     ls_maxAnaDisp = tuple(2e10 for _ in batch)
                 result = SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
-                error = _write_result(output_h5, result, gm_name, batch, lock)
+                error = _write_result(model_results, result, gm_name, batch, lock)
                 if error:
                     raise error
                 finished_SDOF += N_SDOFs
@@ -343,7 +366,7 @@ def _run_constant_strength(*args, **kwargs):
                     ls_maxAnaDisp = tuple(2e10 for _ in batch)
                 result = PDtSDOF_batched_solver(N_SDOFs, ls_h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
-                error = _write_result(output_h5, result, gm_name, batch, lock)
+                error = _write_result(model_results, result, gm_name, batch, lock)
                 if error:
                     raise error
                 finished_SDOF += N_SDOFs
@@ -354,16 +377,27 @@ def _run_constant_strength(*args, **kwargs):
         return
 
 
-def _parse_material(task: dict, n: str) -> dict:
+def _split_batch(ls_SDOF: list[int], batch: int) -> list[list[int]]:
+    """拆分模型"""
+    ls_batch = []
+    while True:
+        ls_batch.append(ls_SDOF[: batch])
+        del ls_SDOF[: batch]
+        if not ls_SDOF:
+            break
+    return ls_batch
+
+
+def _parse_material(model_overview: dict, model_paras: pd.DataFrame, n: int) -> dict:
     """解析材料字典"""
-    old_materials: dict = task['material_format']
+    old_materials: dict = model_overview['material_format']
     materials = {}
     for matType, old_paras in old_materials.items():
         paras = []
         for old_para in old_paras:
             para = Task.identify_para(old_para)
             if para:
-                paras.append(task['SDOF_models'][n][para])
+                paras.append(model_paras[model_paras['ID']==n][para].item())
             else:
                 paras.append(old_para)
         materials[matType] = paras
@@ -371,41 +405,39 @@ def _parse_material(task: dict, n: str) -> dict:
         
 
 def _write_result(
-    output_h5: Path | str,
+    model_results: Path | str,
     results: dict,
     gm_name: str,
-    n: str | list[int],
+    n: int | list[int],
     lock: multiprocessing.Lock
     ):
     """将SDOF计算结果写入json文件，每次调用会打开generated_file并进行写入
 
     Args:
-        output_h5 (Path | str): 输出文件夹中的json文件
+        model_results (Path | str): 输出文件夹中的json文件
         results (dict): SDOF求解器返回的结果
         batched (bool): 是否设置批量计算
         lock (multiprocessing.Lock): 进程锁
     """
-    output_h5 = Path(output_h5)
+    model_results = Path(model_results)
     lock.acquire()
     try:
-        if not output_h5.exists():
-            f = h5py.File(output_h5, 'w')
+        if not model_results.exists():
+            f = h5py.File(model_results, 'w')
         else:
-            f = h5py.File(output_h5, 'a')
-        if not gm_name in f:
-            f.create_group(gm_name)
-        # 写入响应类型
+            f = h5py.File(model_results, 'a')
+        # 写入响应类型（只会写入一次）
         if not 'response_type' in f:
             f.create_dataset('response_type', data=list(results.keys()))
         # 写入响应数据
-        if isinstance(n, str):
+        if isinstance(n, int):
             # results: dict[str, bool | float]
-            f[gm_name].create_dataset(n, data=list(results.values()))
+            f.create_dataset(str(n), data=list(results.values()))
         elif isinstance(n, list):
             # results: dict[str, bool | tuple[bool, ...] | list[float]]
             for i, response in enumerate(list(zip(*(results.values())))):  
                 # *将响应结果转置
-                f[gm_name].create_dataset(str(n[i]), data=response)
+                f.create_dataset(str(n[i]), data=response)
         else:
             raise SDOF_Error(f'不支持的参数 n 类型：{type(n)}')
         f.close()

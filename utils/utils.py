@@ -22,6 +22,17 @@ logger.add(
 LOGGER = logger
 
 
+def check_file_exists(path: str | Path):
+    """检查文件是否存在，如果不存在则抛出异常
+
+    Args:
+        path (str | Path): 文件路径
+    """
+    path = Path(path)
+    if not path.exists():
+        raise SDOF_Error(f'路径不存在：{path.absolute()}')
+
+
 def creat_folder(
         path: Path | str,
         exists: Literal['overwrite', 'delete', 'ask']='ask',
@@ -188,29 +199,35 @@ class Curve:
     
     def _statistics(self):
         """计算统计特征"""
-        # 16、50、84分位线
+        # 2、16、50、84、98分位线
+        self.pct_2 = np.percentile(self.y_values, 2, axis=0)
         self.pct_16 = np.percentile(self.y_values, 16, axis=0)
         self.pct_50 = np.percentile(self.y_values, 50, axis=0)
         self.pct_84 = np.percentile(self.y_values, 84, axis=0)
+        self.pct_98 = np.percentile(self.y_values, 98, axis=0)
         self.mean = np.mean(self.y_values, axis=0)  # 均值
-        self.std = np.std(self.y_values, axis=0)
+        self.std = np.std(self.y_values, axis=0)  # 标准差
 
-    def show(self, save_result: bool=False, plotfig=True):
+    def show(self, save_result: bool=False, plotfig=True, plot_scatter=True):
         """展示曲线
 
         Args:
             save_result (bool, optional): 是否保持曲线到输出文件夹，默认False
             plotfig (bool, optional): 是否绘制曲线图，默认True
+            plot_scatter (bool, optional): 是否绘制散点(若数据量大可不绘制)
         """
         label = self.label
-        for i in range(self.N):
-            plt.scatter(self.x_values, self.y_values[i], c='grey', label=label)
-            label = None
+        if plot_scatter:
+            for i in range(self.N):
+                plt.scatter(self.x_values, self.y_values[i], c='grey', label=label)
+                label = None
+        plt.plot(self.x_values, self.pct_2, c='orange', label='pct2')
         plt.plot(self.x_values, self.pct_16, c='green', label='pct16')
         plt.plot(self.x_values, self.pct_50, c='blue', label='pct50')
         plt.plot(self.x_values, self.pct_84, c='green', label='pct84')
+        plt.plot(self.x_values, self.pct_98, c='orange', label='pct98')
         plt.plot(self.x_values, self.mean, c='red', label='Meam')
-        # plt.plot(self.x_values, self.std, c='yellow', label='STD')
+        plt.plot(self.x_values, self.std, c='brown', label='STD')
         plt.xlabel(self.x_label)
         plt.ylabel(self.y_label)
         plt.legend()
@@ -219,12 +236,15 @@ class Curve:
             df = pd.DataFrame()
             df[self.x_label] = self.x_values
             for i, gm_name in enumerate(self.gm_names):
-                df[gm_name] = self.y_values[i]
-            df['16%'] = self.pct_16
-            df['50%'] = self.pct_50
-            df['84%'] = self.pct_84
-            df['Mean'] = self.mean
-            df['STD'] = self.std
+                df[gm_name] = self.y_values[i]  # 输出所有散点
+            df_2 = pd.DataFrame(pd.Series(self.pct_2), columns=['2%'])
+            df_16 = pd.DataFrame(pd.Series(self.pct_16), columns=['16%'])
+            df_50 = pd.DataFrame(pd.Series(self.pct_50), columns=['50%'])
+            df_84 = pd.DataFrame(pd.Series(self.pct_84), columns=['84%'])
+            df_98 = pd.DataFrame(pd.Series(self.pct_98), columns=['98%'])
+            df_mean = pd.DataFrame(pd.Series(self.mean), columns=['Mean'])
+            df_std = pd.DataFrame(pd.Series(self.std), columns=['STD'])
+            df = pd.concat([df, df_2, df_16, df_50, df_84, df_98, df_mean, df_std], axis=1)
             df.to_csv(self.output_dir / f'{self.name}.csv', index=None)
         if plotfig:
             plt.show()

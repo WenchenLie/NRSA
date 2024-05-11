@@ -4,41 +4,43 @@ from typing import Literal
 from pathlib import Path
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
-    
+
+import pandas as pd 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from NRSAcore._Win import _Win
-from utils.utils import SDOF_Error, LOGGER
+from utils.utils import SDOF_Error, LOGGER, check_file_exists
 from utils import utils
 
 
 class SDOFmodel:
 
     dir_main = Path(__file__).parent.parent
-    dir_temp = dir_main / 'temp'
     dir_input = dir_main / 'Input'
-    dir_output = dir_main / 'Output'
     dir_gm = dir_input / 'GMs'
 
-    def __init__(self, json_file: Path | str=None, task: dict=None):
-        """导入模型
+    def __init__(self, model_name: str, working_directory: str | Path):
+        """导入模型，形成以下三个实例属性
+        * model_overview
+        * model_paras
+        * model_spectra
 
         Args:
-            json_file (Path | str, optional): 从json文件导入，默认None
-            task (dict, optional): 从Task类生成的字典导入
+            model_name (str): 模型名称
+            working_directory (str | Path): 工作路径文件夹
         """
         self.logger = LOGGER
-        if json_file is None and task is None:
-            raise SDOF_Error('参数 json_file 与 task 至少应指定一个')
-        if json_file:
-            with open(json_file, 'r') as f:
-                self.task = json.loads(f.read())
-                self.logger.success(f'已导入：{json_file.name}')
-        if task:
-            self.task = task
-        self.json_file = json_file
-        self.model_name = json_file.stem
+        self.model_name = model_name
+        self.wkd = Path(working_directory)
+        check_file_exists(self.wkd / f'{model_name}_overview.json')
+        check_file_exists(self.wkd / f'{model_name}_paras.csv')
+        check_file_exists(self.wkd / f'{model_name}_spectra.json')
+        with open(self.wkd / f'{model_name}_overview.json', 'r') as f:
+            self.model_overview: dict = json.load(f)
+        self.model_paras = pd.read_csv(self.wkd / f'{model_name}_paras.csv')
+        with open(self.wkd / f'{model_name}_spectra.json', 'r') as f:
+            self.model_spectra: dict = json.load(f)
         self.construct_QApp()
         self._get_task_info()
 
@@ -52,12 +54,11 @@ class SDOFmodel:
 
     def _get_task_info(self):
         """获取分析任务信息"""
-        self.GM_N = len(self.task['ground_motions']['dt_SF'])  # 地震动数量
-        self.N_SDOF = len(self.task['SDOF_models'])
+        self.GM_N = len(self.model_overview['ground_motions']['name_dt_SF'])  # 地震动数量
+        self.N_SDOF = self.model_overview['N_SDOF']  # 单自由度总数量
 
 
     def set_analytical_options(self,
-            output_dir: Path | str,
             analysis_type: Literal['constant_ductility', 'constant_strength'],
             fv_duration: float=0,
             PDelta: bool=False,
@@ -70,7 +71,6 @@ class SDOFmodel:
         """设置分析参数
 
         Args:
-            output_dir (Path | str): 用于储存计算结果的文件夹
             analysis_type (Literal['constant_ductility', 'constant_strength']): 分析类型，等延性或等屈服强度
             fv_duration (float, optional): 自由振动时长
             PDelta (bool, optional): 是否考虑P-Delta效应，默认False
@@ -92,8 +92,6 @@ class SDOFmodel:
             raise SDOF_Error('参数 parallel 应为整数')
         if parallel < 1:
             raise SDOF_Error('参数 parallel 应大于等于1')
-        output_dir = Path(output_dir)
-        self.output_dir = output_dir
         if batch == 1 and not PDelta:
             func_type = 1
         elif batch > 1 and not PDelta:
@@ -131,23 +129,21 @@ class SDOFmodel:
 
     def run(self):
         """开始运行分析"""
-        if not utils.creat_folder(self.output_dir):
-            self.logger.warning('已退出分析')
-            return
         win = _Win(self, self.logger)
         win.show()
         self.app.exec_() 
 
 
 if __name__ == "__main__":
-    model = SDOFmodel(json_file=Path(__file__).parent.parent/'temp'/'LCF.json')
+    SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\7Records')
+    _Win.dir_gm = Path(r'F:\重要数据\小波库\7Records')
+    model = SDOFmodel('LCF', r'G:\LCFwkd')
     model.set_analytical_options(
-        Path(__file__).parent.parent / 'Output',
         'constant_strength',
         PDelta=False,
-        batch=100,
+        batch=1,
         auto_quit=False,
-        parallel=20
+        parallel=1
     )
     model.run()
 

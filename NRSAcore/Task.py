@@ -9,6 +9,7 @@ if __name__ == "__main__":
 
 import h5py
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from NRSAcore.Spectrum import Spectrum
@@ -32,24 +33,23 @@ class Task:
     (5) self.constant_paras = list[str], 所有常数型参数的参数名  
     """
     dir_main = Path(__file__).parent.parent
-    dir_temp = dir_main / 'temp'
     dir_input = dir_main / 'Input'
-    dir_output = dir_main / 'Output'
     dir_gm = dir_input / 'GMs'
 
 
-    def __init__(self, model_name: str, output_dir: str | Path):
+    def __init__(self, model_name: str, working_directory: str | Path):
         """创建一个分析任务
 
         Args:
             model_name (str): 模型名称
-            output_dir (str | Path): 输出文件夹
+            working_directory (str | Path): 工作路径文件夹
         """
+        working_directory = Path(working_directory)
         self.model_name = model_name
-        self.output_dir = output_dir
+        self.wkd = working_directory
         self.logger = LOGGER
         self.logger.success('欢迎使用非线性反应谱分析程序')
-        utils.creat_folder(output_dir, 'overwrite')
+        utils.creat_folder(working_directory, 'overwrite')
         # 所有用到的模型参数（1-常数，2-独立参数，3-从属参数）
         self.paras: dict[str, tuple[int | float | list, Literal[1, 2, 3]]] = {}
         self.GM_N = 0
@@ -79,7 +79,7 @@ class Task:
                 'suffix': None,  # 地震动后缀
                 'dt_SF': {}  # 地震动步长及缩放系数
             },
-            'SDOF_models': {}  # 所有参数所有组合情况，依次为独立参数，常数型参数，从属参数
+            'N_SDOF': None  # 所有参数所有组合情况，依次为独立参数，常数型参数，从属参数
         }
 
     
@@ -285,7 +285,7 @@ class Task:
     def scale_ground_motions(self,
             method: str, para, path_spec_code: Path=None, SF_code: float=1.0, save_SF=False,
             plot=True, save_unscaled_spec=False, save_scaled_spec=True, spec_from_h5: str | Path=None):
-        """缩放地震动
+        """缩放地震动。生成{self.model_name}_spectra.json文件，包括地震动反应谱数据
 
         Args:
             method (str): 地震动的缩放方法，为'a'-'g'：  
@@ -408,8 +408,8 @@ class Task:
             self.scaled_GM_RSD[idx] = RSD * SF
             self.GM_SF.append(SF)
             if save_SF:
-                np.savetxt(self.dir_temp / 'GM_SFs.txt', self.GM_SF)  # 保存缩放系数
-                np.savetxt(self.dir_temp / 'GM_SFs.txt', self.GM_SF)  # 保存缩放系数
+                np.savetxt(self.wkd / 'GM_SFs.txt', self.GM_SF)  # 保存缩放系数
+                np.savetxt(self.wkd / 'GM_SFs.txt', self.GM_SF)  # 保存缩放系数
         if spec_from_h5:
             spec_file.close()
         if save_unscaled_spec:
@@ -433,19 +433,20 @@ class Task:
                 pct_D[i, 0] = np.percentile(data_RSD[i, 1:], 16)
                 pct_D[i, 1] = np.percentile(data_RSD[i, 1:], 50)
                 pct_D[i, 2] = np.percentile(data_RSD[i, 1:], 84)
-            np.savetxt(self.dir_temp / 'Unscaled_RSA.txt', data_RSA, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSV.txt', data_RSV, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSD.txt', data_RSD, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSA_pct.txt', pct_A, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSV_pct.txt', pct_V, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSD_pct.txt', pct_D, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSA.txt', data_RSA, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSV.txt', data_RSV, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSD.txt', data_RSD, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSA_pct.txt', pct_A, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSV_pct.txt', pct_V, fmt='%.5f')
-            np.savetxt(self.dir_temp / 'Unscaled_RSD_pct.txt', pct_D, fmt='%.5f')
-            self.logger.info(f'已保存未缩放反应谱至temp文件夹')
+            utils.creat_folder(self.wkd / 'Spectra_data', exists='overwrite')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSA.txt', data_RSA, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSV.txt', data_RSV, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSD.txt', data_RSD, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSA_pct.txt', pct_A, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSV_pct.txt', pct_V, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSD_pct.txt', pct_D, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSA.txt', data_RSA, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSV.txt', data_RSV, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSD.txt', data_RSD, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSA_pct.txt', pct_A, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSV_pct.txt', pct_V, fmt='%.5f')
+            np.savetxt(self.wkd / 'Spectra_data/Unscaled_RSD_pct.txt', pct_D, fmt='%.5f')
+            self.logger.info(f'已保存未缩放反应谱至 {self.wkd.name} 文件夹')
         if save_scaled_spec:
             # 保存反应谱数据
             spec_data = {}
@@ -459,7 +460,10 @@ class Task:
             data_RSV[:, 1:] = self.scaled_GM_RSV.T
             data_RSD[:, 1:] = self.scaled_GM_RSD.T
             pct_A, pct_V, pct_D = np.zeros((len(T), 3)), np.zeros((len(T), 3)), np.zeros((len(T), 3))
-            spec_data['T'] = T.tolist()
+            self.logger.info(f'正在写入：{self.model_name}_spectra.h5')
+            model_spectra = h5py.File(self.wkd / f'{self.model_name}_spectra.h5', 'w')
+            model_spectra.create_dataset('T', data=T.tolist())
+            # spec_data['T'] = T.tolist()
             # for i in range(len(T)):
             #     pct_A[i, 0] = np.percentile(data_RSA[i, 1:], 16)
             #     pct_A[i, 1] = np.percentile(data_RSA[i, 1:], 50)
@@ -472,10 +476,14 @@ class Task:
             #     pct_D[i, 2] = np.percentile(data_RSD[i, 1:], 84)
             for i, gm_name in enumerate(self.GM_names):
                 if not gm_name in spec_data.keys():
-                    spec_data[gm_name] = {}
-                spec_data[gm_name]['RSA'] = data_RSA[:, i + 1].tolist()
-                spec_data[gm_name]['RSV'] = data_RSV[:, i + 1].tolist()
-                spec_data[gm_name]['RSD'] = data_RSD[:, i + 1].tolist()
+                    # spec_data[gm_name] = {}
+                    model_spectra.create_group(gm_name)
+                model_spectra[gm_name].create_dataset('RSA', data=data_RSA[:, i + 1].tolist())
+                model_spectra[gm_name].create_dataset('RSV', data=data_RSV[:, i + 1].tolist())
+                model_spectra[gm_name].create_dataset('RSS', data=data_RSD[:, i + 1].tolist())
+                # spec_data[gm_name]['RSA'] = data_RSA[:, i + 1].tolist()
+                # spec_data[gm_name]['RSV'] = data_RSV[:, i + 1].tolist()
+                # spec_data[gm_name]['RSD'] = data_RSD[:, i + 1].tolist()
             # np.savetxt(self.dir_temp / 'Scaled_RSA.txt', data_RSA, fmt='%.5f')
             # np.savetxt(self.dir_temp / 'Scaled_RSV.txt', data_RSV, fmt='%.5f')
             # np.savetxt(self.dir_temp / 'Scaled_RSD.txt', data_RSD, fmt='%.5f')
@@ -488,10 +496,10 @@ class Task:
             # np.savetxt(self.dir_temp / 'Scaled_RSA_pct.txt', pct_A, fmt='%.5f')
             # np.savetxt(self.dir_temp / 'Scaled_RSV_pct.txt', pct_V, fmt='%.5f')
             # np.savetxt(self.dir_temp / 'Scaled_RSD_pct.txt', pct_D, fmt='%.5f')
-            with open(self.dir_temp / f'{self.model_name}_spectra.json', 'w') as f:
-                json.dump(spec_data, f, indent=4)
-            self.logger.info('已生成: ' + str((self.dir_temp / f'{self.model_name}_spectra.json').absolute()))
-            self.logger.success(f'已保存反应谱数据至temp文件夹')
+            # with open(self.wkd / f'{self.model_name}_spectra.json', 'w') as f:
+            #     json.dump(spec_data, f, indent=4)
+            model_spectra.close()
+            self.logger.success('已生成: ' + str((self.wkd / f'{self.model_name}_spectra.h5').absolute()))
         plt.subplot(131)
         if method == 'a':
             plt.scatter(0, Sa_code[0], color='blue', zorder=99999)
@@ -533,21 +541,23 @@ class Task:
         self.scaling_finished = True
 
 
-    def generate_models(self, dir_path: Path | str=None) -> dict:
-        """生成所有SDOF模型的参数，并将SDOF计算任务导出为json或返回一个字典
-
-        Args:
-            dir_path (Path | str, optional): json文件的导出路径文件夹，若为None给则不导出
-
-        Returns:
-            dict: 保护计算任务信息的字典
+    def generate_models(self) -> dict:
+        """生成所有SDOF模型的参数，共生成2个文件，分别为：
+        * {model_name}_overview.json: 记录了模型概括、参数取值概括、地震动步长等信息
+        * {model_name}_paras.csv: 记录每个SDOF模型所包含的所有参数的详细取值
         """
         self._set_task_info()  # 写入task_info
-        with open(self.dir_temp / f'{self.model_name}.json', 'w') as f:
-            f.write(json.dumps(self.task_info, indent=4))
-        self.logger.info('已生成: ' + str((self.dir_temp / f'{self.model_name}.json').absolute()))
+        self.logger.info(f'正在写入：{self.model_name}_overview.json')
+        with open(self.wkd / f'{self.model_name}_overview.json', 'w') as f:
+            json.dump(self.task_info, f, indent=4)
+        self.logger.success('已生成: ' + str((self.wkd / f'{self.model_name}_overview.json').absolute()))
+        # self.all_values.to_csv(self.wkd / f'{self.model_name}_paras.csv', index=False)
+        self.logger.info(f'正在写入：{self.model_name}_paras.h5')
+        with h5py.File(self.wkd / f'{self.model_name}_paras.h5', 'w') as f:
+            f.create_dataset('columns', data=self.all_values.columns.to_list())
+            f.create_dataset('parameters', data=self.all_values.to_numpy())
+        self.logger.success('已生成: ' + str((self.wkd / f'{self.model_name}_paras.h5').absolute()))
         self.logger.success(f'共生成 {self.N_SDOF} 个SDOF模型')
-        return self.task_info
 
 
     def _set_task_info(self):
@@ -578,33 +588,50 @@ class Task:
         self.task_info['basic_para']['material_paras'] = self.material_paras
         self.task_info['basic_para']['collapse_disp'] = self.collapse_disp
         self.task_info['basic_para']['maxAnaDisp'] = self.maxAnaDisp
+        gm_idx = 1
+        self.task_info['ground_motions']['name_dt_SF'] = {}
         for gm_name, dt, SF in zip(self.GM_names, self.GM_dts, self.GM_SF):
-            self.task_info['ground_motions']['dt_SF'][gm_name] = (dt, SF)
+            # self.task_info['ground_motions']['dt_SF'][gm_name] = (dt, SF)
+            self.task_info['ground_motions']['name_dt_SF'][str(gm_idx)] = (gm_name, dt, SF)
+            gm_idx += 1
         # 生成参数组合
-        # 1 写入独立参数组合
-        independent_para_values = []
+        comb_values: list[float] = []  # 组合前每种参数的取值
+        comb_names: list[str] = ['ID']  # 组合前各个参数的名称
+        N_SDOF = 1
+        # 1 地震动
+        ls_gmidx = [i + 1 for i in range(self.GM_N)]
+        N_SDOF *= len(ls_gmidx)
+        comb_values.append(ls_gmidx)
+        comb_names.append('ground_motion')
+        # 2 独立参数
         for name in self.independent_paras:
-            independent_para_values.append(self._get_values(name))
-        comb = list(itertools.product(*independent_para_values))
-        for i, paras in enumerate(comb):
-            self.task_info['SDOF_models'][i + 1] = {}
-            for j, name in enumerate(self.independent_paras):
-                self.task_info['SDOF_models'][i + 1][name] = paras[j]
-        N_SDOF = i + 1  # SDOF的数量
-        # 2 写入常数参数
-        for i in range(1, N_SDOF + 1):
-            for name in self.constant_paras:
-                self.task_info['SDOF_models'][i][name] = self._get_values(name)
-        # 3 写入从属参数
-        for i in range(1, N_SDOF + 1):
-            for name, (func, *idpd_names) in self.dependent_paras.items():
-                # 获取独立参数的值
-                for j in range(len(idpd_names)):
-                    if not idpd_names[j] in self.task_info['SDOF_models'][i]:
-                        raise Task_Error(f'未找到从属参数 {name} 所依赖的参数 {idpd_names[j]} 的值，请注意从属参数的添加顺序')
-                idpd_values = [self.task_info['SDOF_models'][i][idpd_names[j]] for j in range(len(idpd_names))]
-                # 计算从属参数的值
-                dpd_value = func(*idpd_values)
-                self.task_info['SDOF_models'][i][name] = dpd_value
-        self.N_SDOF = N_SDOF
+            N_SDOF *= len(self._get_values(name))
+            comb_values.append(self._get_values(name))
+            comb_names.append(name)
+        # 将地震动和独立参数进行组合
+        # values = np.zeros((0, len(comb_names)))
+        values = np.zeros((N_SDOF, len(comb_names)))
+        res = itertools.product(*comb_values)
+        for i, line in enumerate(res):
+            values[i] = np.array([[0] + list(line)])
+        values[:, 0] = [i + 1 for i in range(len(values))]
+        values = pd.DataFrame(values, columns=comb_names)
+        values['ground_motion'] = values['ground_motion'].astype(int)
+        values['ID'] = values['ID'].astype(int)
+        # 3 常数参数
+        for name in self.constant_paras:
+            values[name] = self._get_values(name)
+        # 4 从属参数
+        for name, (func, *idpd_names) in self.dependent_paras.items():
+            for idpd_name in idpd_names:
+                if not idpd_name in values.columns:
+                    raise Task_Error(f'未找到从属参数 {name} 所依赖的参数 {idpd_name} 的值')
+            idpd_values = [values[idpd_name] for idpd_name in idpd_names]  # 独立参数的值 list[Series]
+            # 计算从属参数的值
+            dpd_values = func(*idpd_values)
+            values[name] = dpd_values
+        # 完成
+        self.N_SDOF = len(values)
+        self.task_info['N_SDOF'] = self.N_SDOF
+        self.all_values = values
 
