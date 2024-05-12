@@ -154,19 +154,6 @@ class Worker(QThread):
         elif self.task.analysis_type == 'constant_strength':
             self.run_constant_strength()
 
-    # def divide_tasks(self):
-    #     """划分计算任务"""
-    #     ls_SDOF = [i + 1 for i in range(self.task.N_SDOF)]  # 所有SDOF模型的序号(1~NSDOF)
-    #     ls_batch = []  # 同一模型空间下SDOF的序号, list[list[int]]
-    #     if self.task.batch > 1:
-    #         while True:
-    #             ls_batch.append(ls_SDOF[: self.task.batch])
-    #             del ls_SDOF[: self.task.batch]
-    #             if not ls_SDOF:
-    #                 break
-    #     self.ls_SDOF = ls_SDOF
-    #     self.ls_batch = ls_batch
-
 
     def run_constant_ductility(self):
         """等延性分析"""

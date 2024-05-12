@@ -56,7 +56,7 @@ class Task:
         self.GM_names = []  # 地震动名
         self.GM_dts = []  # 地震动步长
         self.GM_SF = []  # 缩放系数
-        self.GM_PGA = []
+        self.GM_PGA = []  # 原始地震动的PGA
         self.GM_PGV = []
         self.GM_PGD = []
         self.independent_paras = []  # 独立参数
