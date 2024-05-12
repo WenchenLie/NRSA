@@ -9,12 +9,12 @@ if __name__ == "__main__":
 import h5py
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from utils import utils
 
 
 VAR = str | tuple[str, Callable, str, str]
+VALUE = float | int
 
 class PostProcessing:
     """读取结果文件，进行后处理
@@ -143,10 +143,10 @@ class PostProcessing:
 
 
     def generatte_curve(self,
-        name: str,
-        var_x: VAR,
-        var_y: VAR,
-        *conditions: tuple[VAR, float | int],
+            name: str,
+            var_x: VAR,
+            var_y: VAR,
+            *conditions: tuple[VAR, VALUE] | tuple[VAR, VALUE, VALUE],
         ) -> utils.Curve:
         """提取非线性反应谱分析结果
 
@@ -154,7 +154,7 @@ class PostProcessing:
             name (str): 任取一个曲线名（跟之前的不能重复）
             var_x (VAR): 横坐标变量名
             var_y (VAR): 纵坐标变量名
-            condition (tuple[VAR, float | int]): 约束条件
+            condition (tuple[VAR, VALUE] | tuple[VAR, VALUE, VALUE]): 约束条件
             两个变量的相对误差值若小于该值则可认为相等
 
         Returns (utils.Curve): 返回一个Curve对象
@@ -162,12 +162,12 @@ class PostProcessing:
         Example:
             >>> extract_result('T', 'maxDisp', ('Cy', 0.5))  # (1)
             >>> miu = lamda x, y: x / y
-            >>> extract_result('T', (miu, 'maxDisp', 'uy'), ('Cy', 0.5))  # (2)
+            >>> extract_result('T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.5))  # (2)
+            >>> extract_result('PGV', ('miu', miu, 'maxDisp', 'uy'), ('T', 0.1, 0.5))  # (3)
             其中:
-            (1) 以模型文件中'T'为横坐标，结果文件中'maxDisp'为纵坐标，
-            模型文件中'Cy=0.5'为约束条件，计算非线性反应谱曲线。
-            (2) 以'T'为横坐标，结果文件中以'maxDisp'和'uy'作为参数输入至`miu`函数，并以返回值作为纵坐标，以'Cy=0.5'作为约束条件绘制非线性反应谱曲线。
-            注：变量名应在json模型文件的'para_name'或结果文件的'response_type'中定义
+            (1) 以模型文件中'T'为横坐标，'maxDisp'为纵坐标，'Cy=0.5'为约束条件，计算非线性反应谱曲线。
+            (2) 以'T'为横坐标，以'maxDisp'和'uy'作为参数输入至`miu`函数，并以返回值作为纵坐标，以'Cy=0.5'作为约束条件绘制非线性反应谱曲线。
+            (3) 以'PGV'为横坐标，以'miu'为纵坐标，绘制散点图，其中的散点满足约束条件0.1<='T'<=0.5
         """
         self._var_isexists(var_x, 'both')
         self._var_isexists(var_y, 'both')
@@ -177,9 +177,16 @@ class PostProcessing:
         available_ls_n: list[int] = []  # 符合约束条件的SDOF模型编号
         for n in ls_n:
             for condition in conditions:
-                para_name, value = condition
-                if not isclose(value, self._get_value(para_name, n, 'both')):
-                    break
+                para_name, *values = condition
+                if len(values) == 1:
+                    value = values[0]
+                    if not isclose(value, self._get_value(para_name, n, 'both')):
+                        break
+                elif len(values) == 2:
+                    if values[0] <= self._get_value(para_name, n, 'both') <= values[1]:
+                        break
+                else:
+                    raise utils.SDOF_Error(f'参数 condition 应为包括2个或3个元素的元组')
             else:
                 available_ls_n.append(n)
         # 横坐标值
@@ -214,7 +221,10 @@ class PostProcessing:
         # 实例化曲线
         label_ls = []
         for condition in conditions:
-            label_ls.append(f'{condition[0]}={condition[1]}')
+            if len(condition) == 2:
+                label_ls.append(f'{condition[0]}={condition[1]}')
+            elif len(condition) == 3:
+                label_ls.append(f'{condition[0]} is [{condition[1]}, {condition[2]}]')
         label = ', '.join(label_ls)
         curve = utils.Curve(name, x_values, y_values, x_name, y_name, label, self.wkd, self.GM_names)
         return curve
@@ -357,7 +367,7 @@ class PostProcessing:
 
 
     @staticmethod
-    def _isequal(x: float | int, y: float | int, tol: float):
+    def _isequal(x: VALUE, y: VALUE, tol: float):
         """判断两个变量是否相等"""
         return abs(x - y) <= tol
     
@@ -376,12 +386,12 @@ if __name__ == "__main__":
     # T = lambda T, uy: T / uy
     cylce = lambda CD, maxDisp: CD / maxDisp / 4
     E_total = lambda Ec, Ev: Ec + Ev
-    # curve = results.generatte_curve('curve_test', 'T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
+    # curve = results.generatte_curve('curve_test', 'T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.02))
     # curve = results.generatte_curve('curve_test', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.05), ('alpha', 0.02), ('zeta', 0.02))
     # curve = results.generatte_curve('curve_test', 'T', ('R', R, 'Fe', 'Fy'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
     # curve = results.generatte_curve('curve_test', 'T', 'Ev', ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
     # curve = results.generatte_curve('curve_test', 'T', ('E_total', E_total, 'Ec', 'Ev'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
-    curve = results.generatte_curve('curve_test', 'T', 'PGV', ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
+    curve = results.generatte_curve('curve_test', ('miu', miu, 'maxDisp', 'uy'), 'PGA', ('T', 0.2), ('alpha', 0.02), ('zeta', 0.05))
     # curve1 = results.generatte_curve('TCycle_Cy0.05', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.05), ('alpha', 0.02), ('zeta', 0.05))
     # curve2 = results.generatte_curve('TCycle_Cy0.1', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
     # curve3 = results.generatte_curve('TCycle_Cy0.2', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.05))

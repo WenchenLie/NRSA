@@ -74,7 +74,7 @@ def generate_task():
         files.append(file.stem)
     # task.select_ground_motions(files, '.txt')
     # task.scale_ground_motions('e', None, plot=False, spec_from_h5=r'G:\NGAWest2\Spectra.hdf5')
-    task.select_ground_motions(['th1'], '.th')
+    task.select_ground_motions([f'th{i}' for i in range(1, 45)], '.th')
     task.scale_ground_motions('e', None, plot=False)
 
     # 5 导出模型

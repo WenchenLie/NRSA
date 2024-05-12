@@ -344,7 +344,8 @@ class Task:
             print(f'正在缩放地震动...({idx+1}/{self.GM_N})     \r', end='')
             th = np.loadtxt(self.dir_gm / f'{gm_name}{self.suffix}')
             self.GM_PGA.append(max(abs(th)))
-            t = np.arange(0, len(th) * self.GM_dts[idx], self.GM_dts[idx])
+            # t = np.arange(0, len(th) * self.GM_dts[idx], self.GM_dts[idx])
+            t = np.linspace(0, (len(th) - 1) * self.GM_dts[idx], len(th))
             v = utils.integral(th * self.g, t)  # 速度时程
             d = utils.integral(v, t)  # 位移时程
             self.GM_PGV.append(max(abs(v)))

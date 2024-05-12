@@ -160,9 +160,9 @@ if __name__ == "__main__":
     model.set_analytical_options(
         'constant_strength',
         PDelta=False,
-        batch=10,
+        batch=20,
         auto_quit=False,
-        parallel=1
+        parallel=20
     )
     model.run()
 

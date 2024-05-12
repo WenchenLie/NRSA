@@ -197,6 +197,8 @@ class Curve:
         self.y_values = y_values
         self.x_label = x_label
         self.y_label = y_label
+        if not label:
+            label = y_label
         self.label = label
         self.wkd = wkd
         self.gm_names = gm_names
@@ -278,6 +280,8 @@ def get_y(x_line: np.ndarray, y_line: np.ndarray, x: float | int) -> float:
 
 def integral(y: np.ndarray, x: np.ndarray) -> np.ndarray:
     """计算y对x的不定积分"""
+    if not len(x) == len(y):
+        raise SDOF_Error(f'数组x和y的长度不相等({len(x)}, {len(y)})')
     int_y = [0]
     for i in range(1, len(x)):
         dx = x[i] - x[i - 1]
