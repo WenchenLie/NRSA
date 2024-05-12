@@ -16,14 +16,16 @@ def generate_task():
     # 1 定义模型参数
     # (1) 常数型参数
     m = 1
+    # P_norm = 0
+    h = 1000
     # (2) 独立参数(通常是无量纲参数)
     T = np.arange(0.2, 6.2, 0.2)
-    Cy = np.array([0.05, 0.1, 0.2, 0.4, 0.6, 0.8])
-    alpha = [0, 0.02, 0.05, 0.1, 0.2]
-    zeta = [0.02, 0.03, 0.05, 0.1, 0.2]
-    # Cy = np.array([0.05, 0.1])
-    # alpha = [0, 0.02]
-    # zeta = [0.02, 0.03]
+    # Cy = np.array([0.05, 0.1, 0.2, 0.4, 0.6, 0.8])
+    # alpha = [0, 0.02, 0.05, 0.1, 0.2]
+    # zeta = [0.02, 0.03, 0.05, 0.1, 0.2]
+    Cy = np.array([0.05, 0.1])
+    alpha = [0, 0.02]
+    zeta = [0.02, 0.03]
     # (3) 从属参数(通常直接用于SDOF计算的参数)
     get_Fy = lambda m, Cy: m * g * Cy  # 与m, Cy相关
     get_k = lambda T, m: 4 * pi**2 / T**2 * m  # 与T, m相关
@@ -31,8 +33,8 @@ def generate_task():
     get_uy = lambda Fy, k: Fy / k  # 与Fy，k相关
     # 设置参数(注意从属参数的先后定义顺序)
     # task.add_constant('zeta', zeta)
-    # task.add_constant('P_norm', P_norm)
     task.add_constant('m', m)
+    # task.add_constant('P_norm', P_norm)
     # task.add_constant('h', h)
     task.add_independent_parameter('T', T)
     task.add_independent_parameter('Cy', Cy)
@@ -66,7 +68,7 @@ def generate_task():
 
     # 4 定义地震动
     files = []
-    for file in Path(r'F:\重要数据\小波库\3046Records').iterdir():
+    for file in Path(r'F:\重要数据\小波库\7Records').iterdir():
         if file.suffix == '.json':
             continue
         files.append(file.stem)

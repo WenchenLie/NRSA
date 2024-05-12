@@ -320,53 +320,56 @@ def _run_constant_strength(*args, **kwargs):
                     queue.put(('h', '中断计算'))
                     return
                 pause_event.wait()
-                N_SDOFs = len(batch)
-                ls_T = tuple(task_info['SDOF_models'][str(n)][T_name] for n in batch)
-                ls_materials = tuple(_parse_material(task_info, str(n)) for n in batch)
-                ls_uy = tuple(task_info['SDOF_models'][str(n)][uy_name] for n in batch)
-                ls_SF = tuple(SF for _ in batch)
-                ls_zeta = tuple(task_info['SDOF_models'][str(n)][zeta_name] for n in batch)
-                ls_m = tuple(task_info['SDOF_models'][str(n)][m_name] for n in batch)
+                N_SDOFs = len(ls_batch)
+                df = model_paras[model_paras['ID'].isin(ls_batch)]
+                ls_T = df[T_name].to_list()
+                ls_materials = tuple(_parse_material(model_overview, model_paras, n) for n in ls_batch)
+                ls_uy = df[uy_name].to_list()
+                ls_SF = tuple(SF for _ in ls_batch)
+                ls_zeta = df[zeta_name].to_list()
+                ls_m = df[m_name].to_list()
                 if collapseDisp_name:
-                    ls_collapseDisp = tuple(task_info['SDOF_models'][str(n)][collapseDisp_name] for n in batch)
+                    ls_collapseDisp = df[collapseDisp_name].to_list()
                 else:
-                    ls_collapseDisp = tuple(1e10 for _ in batch)
+                    ls_collapseDisp = tuple(1e10 for _ in ls_batch)
                 if maxAnaDisp_name:
-                    ls_maxAnaDisp = tuple(task_info['SDOF_models'][str(n)][maxAnaDisp_name] for n in batch)
+                    ls_maxAnaDisp = df[maxAnaDisp_name].to_list()
                 else:
-                    ls_maxAnaDisp = tuple(2e10 for _ in batch)
+                    ls_maxAnaDisp = tuple(2e10 for _ in ls_batch)
                 result = SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
-                error = _write_result(model_results, result, gm_name, batch, lock)
+                error = _write_result(model_results, result, gm_name, ls_batch, lock)
                 if error:
                     raise error
                 finished_SDOF += N_SDOFs
         elif func_type == 3:
-            for batch in ls_batch:
+            ls_batches = _split_batch(ls_SDOF, batch)
+            for ls_batch in ls_batches:
                 if stop_event.is_set():
                     queue.put(('h', '中断计算'))
                     return
                 pause_event.wait()
-                N_SDOFs = len(batch)
-                ls_h = tuple(task_info['SDOF_models'][str(n)][h_name] for n in batch)
-                ls_T = tuple(task_info['SDOF_models'][str(n)][T_name] for n in batch)
-                ls_grav = tuple(task_info['SDOF_models'][str(n)][P_name] for n in batch)
-                ls_materials = tuple(_parse_material(task_info, str(n)) for n in batch)
-                ls_uy = tuple(task_info['SDOF_models'][str(n)][uy_name] for n in batch)
-                ls_SF = tuple(SF for _ in batch)
-                ls_zeta = tuple(task_info['SDOF_models'][str(n)][zeta_name] for n in batch)
-                ls_m = tuple(task_info['SDOF_models'][str(n)][m_name] for n in batch)
+                N_SDOFs = len(ls_batch)
+                df = model_paras[model_paras['ID'].isin(ls_batch)]
+                ls_h = df[h_name].to_list()
+                ls_T = df[T_name].to_list()
+                ls_grav = df[P_name].to_list()
+                ls_materials = tuple(_parse_material(model_overview, model_paras, n) for n in ls_batch)
+                ls_uy = df[uy_name].to_list()
+                ls_SF = tuple(SF for _ in ls_batch)
+                ls_zeta = df[zeta_name].to_list()
+                ls_m = df[m_name].to_list()
                 if collapseDisp_name:
-                    ls_collapseDisp = tuple(task_info['SDOF_models'][str(n)][collapseDisp_name] for n in batch)
+                    ls_collapseDisp = df[collapseDisp_name].to_list()
                 else:
-                    ls_collapseDisp = tuple(1e10 for _ in batch)
+                    ls_collapseDisp = tuple(1e10 for _ in ls_batch)
                 if maxAnaDisp_name:
-                    ls_maxAnaDisp = tuple(task_info['SDOF_models'][str(n)][maxAnaDisp_name] for n in batch)
+                    ls_maxAnaDisp = df[maxAnaDisp_name].to_list()
                 else:
-                    ls_maxAnaDisp = tuple(2e10 for _ in batch)
+                    ls_maxAnaDisp = tuple(2e10 for _ in ls_batch)
                 result = PDtSDOF_batched_solver(N_SDOFs, ls_h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
-                error = _write_result(model_results, result, gm_name, batch, lock)
+                error = _write_result(model_results, result, gm_name, ls_batch, lock)
                 if error:
                     raise error
                 finished_SDOF += N_SDOFs

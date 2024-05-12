@@ -480,7 +480,7 @@ class Task:
                     model_spectra.create_group(gm_name)
                 model_spectra[gm_name].create_dataset('RSA', data=data_RSA[:, i + 1].tolist())
                 model_spectra[gm_name].create_dataset('RSV', data=data_RSV[:, i + 1].tolist())
-                model_spectra[gm_name].create_dataset('RSS', data=data_RSD[:, i + 1].tolist())
+                model_spectra[gm_name].create_dataset('RSD', data=data_RSD[:, i + 1].tolist())
                 # spec_data[gm_name]['RSA'] = data_RSA[:, i + 1].tolist()
                 # spec_data[gm_name]['RSV'] = data_RSV[:, i + 1].tolist()
                 # spec_data[gm_name]['RSD'] = data_RSD[:, i + 1].tolist()

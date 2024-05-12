@@ -5,6 +5,7 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
+import h5py
 import pandas as pd 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
@@ -34,13 +35,27 @@ class SDOFmodel:
         self.model_name = model_name
         self.wkd = Path(working_directory)
         check_file_exists(self.wkd / f'{model_name}_overview.json')
-        check_file_exists(self.wkd / f'{model_name}_paras.csv')
-        check_file_exists(self.wkd / f'{model_name}_spectra.json')
+        check_file_exists(self.wkd / f'{model_name}_paras.h5')
+        check_file_exists(self.wkd / f'{model_name}_spectra.h5')
+        # 打开三个文件
         with open(self.wkd / f'{model_name}_overview.json', 'r') as f:
             self.model_overview: dict = json.load(f)
-        self.model_paras = pd.read_csv(self.wkd / f'{model_name}_paras.csv')
-        with open(self.wkd / f'{model_name}_spectra.json', 'r') as f:
-            self.model_spectra: dict = json.load(f)
+        with h5py.File(self.wkd / f'{model_name}_paras.h5', 'r') as f:
+            columns = utils.decode_list(f['columns'][:])
+            paras = f['parameters'][:]
+            self.model_paras = pd.DataFrame(paras, columns=columns)
+            self.model_paras['ID'] = self.model_paras['ID'].astype(int)
+            self.model_paras['ground_motion'] = self.model_paras['ground_motion'].astype(int)
+        with h5py.File(self.wkd / f'{model_name}_spectra.h5', 'r') as f:
+            self.model_spectra = {}
+            for item in f:
+                if item == 'T':
+                    self.model_spectra['T'] = f['T'][:]
+                else:
+                    self.model_spectra[item] = {}
+                    self.model_spectra[item]['RSA'] = f[item]['RSA'][:]
+                    self.model_spectra[item]['RSV'] = f[item]['RSV'][:]
+                    self.model_spectra[item]['RSD'] = f[item]['RSD'][:]
         self.construct_QApp()
         self._get_task_info()
 
@@ -141,7 +156,7 @@ if __name__ == "__main__":
     model.set_analytical_options(
         'constant_strength',
         PDelta=False,
-        batch=1,
+        batch=10,
         auto_quit=False,
         parallel=1
     )
