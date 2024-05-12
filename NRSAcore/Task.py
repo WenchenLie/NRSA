@@ -35,7 +35,7 @@ class Task:
     dir_main = Path(__file__).parent.parent
     dir_input = dir_main / 'Input'
     dir_gm = dir_input / 'GMs'
-
+    g = 9800
 
     def __init__(self, model_name: str, working_directory: str | Path):
         """创建一个分析任务
@@ -56,6 +56,9 @@ class Task:
         self.GM_names = []  # 地震动名
         self.GM_dts = []  # 地震动步长
         self.GM_SF = []  # 缩放系数
+        self.GM_PGA = []
+        self.GM_PGV = []
+        self.GM_PGD = []
         self.independent_paras = []  # 独立参数
         self.dependent_paras: dict[str, list[Callable, str]] = {}  # 从属参数
         self.constant_paras = []  # 常数型参数
@@ -340,6 +343,12 @@ class Task:
         for idx, gm_name in enumerate(self.GM_names):
             print(f'正在缩放地震动...({idx+1}/{self.GM_N})     \r', end='')
             th = np.loadtxt(self.dir_gm / f'{gm_name}{self.suffix}')
+            self.GM_PGA.append(max(abs(th)))
+            t = np.arange(0, len(th) * self.GM_dts[idx], self.GM_dts[idx])
+            v = utils.integral(th * self.g, t)  # 速度时程
+            d = utils.integral(v, t)  # 位移时程
+            self.GM_PGV.append(max(abs(v)))
+            self.GM_PGD.append(max(abs(d)))
             if spec_from_h5 is None:
                 RSA, RSV, RSD = Spectrum(ag=th, dt=self.GM_dts[idx], T=T)  # 计算地震动反应谱
             else:
@@ -590,9 +599,10 @@ class Task:
         self.task_info['basic_para']['maxAnaDisp'] = self.maxAnaDisp
         gm_idx = 1
         self.task_info['ground_motions']['name_dt_SF'] = {}
-        for gm_name, dt, SF in zip(self.GM_names, self.GM_dts, self.GM_SF):
-            # self.task_info['ground_motions']['dt_SF'][gm_name] = (dt, SF)
+        self.task_info['ground_motions']['name_PGAVD'] = {}
+        for i, (gm_name, dt, SF) in enumerate(zip(self.GM_names, self.GM_dts, self.GM_SF)):
             self.task_info['ground_motions']['name_dt_SF'][str(gm_idx)] = (gm_name, dt, SF)
+            self.task_info['ground_motions']['name_PGAVD'][str(gm_idx)] = (self.GM_PGA[i], self.GM_PGV[i], self.GM_PGD[i])
             gm_idx += 1
         # 生成参数组合
         comb_values: list[float] = []  # 组合前每种参数的取值

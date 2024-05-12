@@ -33,14 +33,17 @@ class PostProcessing:
     * CD: 累积位移
     * CPD: 累积塑性位移(需在定义模型时指定屈服位移)
     * resDisp: 残余位移
-    (3) 弹性结构最大响应:
+    (3) 与弹性反应谱相关的变量:
     * Fe: 最大基底剪力
     * ue: 最大位移
     * ae: 最大加速度
     * ve: 最大速度
     * Ee: 弹性应变能
+    * PGA: 峰值加速度
+    * PGV: 峰值速度
+    * PGD: 峰值位移
     """
-    spectral_response = ['Fe', 'ue', 'ae', 've', 'Ee']
+    g = 9800
 
     def __init__(self, model_name: str, working_directory: str | Path) -> None:
         """后处理器，初始化时应代入h5结果文件和json模型文件
@@ -97,7 +100,7 @@ class PostProcessing:
                     self.model_spectra['T'] = f['T'][:]
                 else:
                     self.model_spectra[item] = {}
-                    self.model_spectra[item]['RSA'] = f[item]['RSA'][:]
+                    self.model_spectra[item]['RSA'] = f[item]['RSA'][:] * self.g
                     self.model_spectra[item]['RSV'] = f[item]['RSV'][:]
                     self.model_spectra[item]['RSD'] = f[item]['RSD'][:]
                     GM_N += 1
@@ -134,7 +137,7 @@ class PostProcessing:
         # 来自于计算结果(即响应类型)
         self.available_paras['result'] = self.model_results.columns.to_list()[1:]
         # 来自于反应谱(即弹性结构响应)
-        self.available_paras['spec'] = ['Fe', 'ue', 'ae', 've', 'Ee']
+        self.available_paras['spec'] = ['Fe', 'ue', 'ae', 've', 'Ee', 'PGA', 'PGV', 'PGD']
         # 来自于上述所有来源
         self.available_paras['both'] = self.available_paras['model'] + self.available_paras['result'] + self.available_paras['spec']
 
@@ -250,44 +253,6 @@ class PostProcessing:
         return x_values, y_values
 
 
-    def to_csv(self, x_vars: list[VAR], y_vars: list[VAR]):
-        """将所关注的变量值导出到x.csv和y.csv文件，可直接用于机器学习训练。
-        变量名可选用结果文件中的响应类型、模型文件中的变量、以及['PGA', 'PGV', 'SaT1']
-        （分别表示不同的地震动强度指标）
-
-        Args:
-            x_vars (list[VAR]): 自变量
-            y_vars (list[VAR]): 因变量
-        """
-        other_var_names = ['PGA', 'PGV', 'SaT1']
-        x_values = np.zeros((self.total_num, len(x_vars)))  # 自变量矩阵
-        x_values = np.zeros((self.total_num, len(y_vars)))  # 因变量矩阵
-        for x_var in x_vars:
-            self._var_isexists(x_var, 'both', other_var_names)
-        idx_line = 0
-        for i, gm_name in enumerate(self.h5):
-            if gm_name == 'response_type':
-                continue
-            print(f'\r正在读取地震动：{i+1} / {self.GM_N} ', end='')
-            for n in self.h5[gm_name]:
-                idx_col = 0
-                for x_var in x_vars:
-                    if isinstance(x_var, str):
-                        # x_var是一个直接给出的变量
-                        x_name = x_var
-                        value = self._get_value(x_name, n, 'both', gm_name)
-                    else:
-                        # x_var需要通过其他参数计算得到
-                        x_name, func = x_var[: 2]  # 变量名和函数
-                        other_vars_names = x_var[2:]  # 其他参数的名称
-                        other_vars_values = []  # 其他参数的值
-                        for var_name in other_vars_names:
-                            other_vars_values.append(self._get_value(var_name, n, 'both', gm_name))
-                        value = func(*other_vars_values)
-                    idx_col += 1
-                idx_line += 1
-
-
     def _var_isexists(self, var: VAR, source: Literal['model', 'result', 'spec', 'both'], other_names: list=[]):
         """检查变量是否在模型文件或结果文件中定义"""
         if isinstance(var, str):
@@ -342,9 +307,13 @@ class PostProcessing:
                 ae = utils.get_y(self.model_spectra['T'], RSA_spec, T_value)
                 ve = utils.get_y(self.model_spectra['T'], RSV_spec, T_value)
                 ue = utils.get_y(self.model_spectra['T'], RSD_spec, T_value)
+                PGA = self.model_overview['ground_motions']['name_PGAVD'][str(gm_idx)][0]
+                PGV = self.model_overview['ground_motions']['name_PGAVD'][str(gm_idx)][1]
+                PGD = self.model_overview['ground_motions']['name_PGAVD'][str(gm_idx)][2]
                 Fe = ae * mass_value
                 Ee = 0.5 * ue * Fe
-                d_value = {'ae': ae, 've': ve, 'ue': ue, 'Fe': Fe, 'Ee': Ee}
+                d_value = {'ae': ae, 've': ve, 'ue': ue, 'Fe': Fe, 'Ee': Ee,
+                           'PGA': PGA, 'PGV': PGV, 'PGD': PGD}
                 value = d_value[name]
             elif isinstance(n, list):
                 ae = np.zeros(len(n))
@@ -352,6 +321,9 @@ class PostProcessing:
                 ue = np.zeros(len(n))
                 Fe = np.zeros(len(n))
                 Ee = np.zeros(len(n))
+                PGA = np.zeros(len(n))
+                PGV = np.zeros(len(n))
+                PGD = np.zeros(len(n))
                 for i, n_ in enumerate(n):
                     T_value = self._get_value(period_name, n_, 'model')  # 模型定义的周期
                     mass_value = self._get_value(mass_name, n_, 'model')  # 模型定义的质量
@@ -363,9 +335,13 @@ class PostProcessing:
                     ae[i] = utils.get_y(self.model_spectra['T'], RSA_spec, T_value)
                     ve[i] = utils.get_y(self.model_spectra['T'], RSV_spec, T_value)
                     ue[i] = utils.get_y(self.model_spectra['T'], RSD_spec, T_value)
+                    PGA[i] = self.model_overview['ground_motions']['name_PGAVD'][str(gm_idx)][0]
+                    PGV[i] = self.model_overview['ground_motions']['name_PGAVD'][str(gm_idx)][1]
+                    PGD[i] = self.model_overview['ground_motions']['name_PGAVD'][str(gm_idx)][2]
                 Fe = ae * mass_value
                 Ee = 0.5 * ue * Fe
-                d_value = {'ae': ae, 've': ve, 'ue': ue, 'Fe': Fe, 'Ee': Ee}
+                d_value = {'ae': ae, 've': ve, 'ue': ue, 'Fe': Fe, 'Ee': Ee,
+                           'PGA': PGA, 'PGV': PGV, 'PGD': PGD}
                 value = d_value[name]
         elif source == 'both':
             for src in ['model', 'result', 'spec']:
@@ -399,8 +375,13 @@ if __name__ == "__main__":
     R = lambda Fe, Fy: Fe / Fy
     # T = lambda T, uy: T / uy
     cylce = lambda CD, maxDisp: CD / maxDisp / 4
+    E_total = lambda Ec, Ev: Ec + Ev
+    # curve = results.generatte_curve('curve_test', 'T', ('miu', miu, 'maxDisp', 'uy'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
     # curve = results.generatte_curve('curve_test', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.05), ('alpha', 0.02), ('zeta', 0.02))
-    curve = results.generatte_curve('curve_test', 'T', ('R', R, 'Fe', 'Fy'), ('Cy', 0.05), ('alpha', 0.02), ('zeta', 0.02))
+    # curve = results.generatte_curve('curve_test', 'T', ('R', R, 'Fe', 'Fy'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
+    # curve = results.generatte_curve('curve_test', 'T', 'Ev', ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
+    # curve = results.generatte_curve('curve_test', 'T', ('E_total', E_total, 'Ec', 'Ev'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
+    curve = results.generatte_curve('curve_test', 'T', 'PGV', ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
     # curve1 = results.generatte_curve('TCycle_Cy0.05', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.05), ('alpha', 0.02), ('zeta', 0.05))
     # curve2 = results.generatte_curve('TCycle_Cy0.1', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.1), ('alpha', 0.02), ('zeta', 0.05))
     # curve3 = results.generatte_curve('TCycle_Cy0.2', 'T', ('cylce', cylce, 'CD', 'maxDisp'), ('Cy', 0.2), ('alpha', 0.02), ('zeta', 0.05))

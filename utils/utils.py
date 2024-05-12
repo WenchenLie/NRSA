@@ -275,3 +275,11 @@ def get_y(x_line: np.ndarray, y_line: np.ndarray, x: float | int) -> float:
             break
     return y
 
+
+def integral(y: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """计算y对x的不定积分"""
+    int_y = [0]
+    for i in range(1, len(x)):
+        dx = x[i] - x[i - 1]
+        int_y.append((y[i] + y[i - 1]) * dx / 2 + int_y[i - 1])
+    return np.array(int_y)

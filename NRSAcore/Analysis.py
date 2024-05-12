@@ -37,16 +37,22 @@ class SDOFmodel:
         check_file_exists(self.wkd / f'{model_name}_overview.json')
         check_file_exists(self.wkd / f'{model_name}_paras.h5')
         check_file_exists(self.wkd / f'{model_name}_spectra.h5')
-        # 打开三个文件
-        with open(self.wkd / f'{model_name}_overview.json', 'r') as f:
+        self._read_files()
+        self._construct_QApp()
+        self._get_task_info()
+
+
+    def _read_files(self):
+        """打开三个文件"""
+        with open(self.wkd / f'{self.model_name}_overview.json', 'r') as f:
             self.model_overview: dict = json.load(f)
-        with h5py.File(self.wkd / f'{model_name}_paras.h5', 'r') as f:
+        with h5py.File(self.wkd / f'{self.model_name}_paras.h5', 'r') as f:
             columns = utils.decode_list(f['columns'][:])
             paras = f['parameters'][:]
             self.model_paras = pd.DataFrame(paras, columns=columns)
             self.model_paras['ID'] = self.model_paras['ID'].astype(int)
             self.model_paras['ground_motion'] = self.model_paras['ground_motion'].astype(int)
-        with h5py.File(self.wkd / f'{model_name}_spectra.h5', 'r') as f:
+        with h5py.File(self.wkd / f'{self.model_name}_spectra.h5', 'r') as f:
             self.model_spectra = {}
             for item in f:
                 if item == 'T':
@@ -56,11 +62,9 @@ class SDOFmodel:
                     self.model_spectra[item]['RSA'] = f[item]['RSA'][:]
                     self.model_spectra[item]['RSV'] = f[item]['RSV'][:]
                     self.model_spectra[item]['RSD'] = f[item]['RSD'][:]
-        self.construct_QApp()
-        self._get_task_info()
 
 
-    def construct_QApp(self):
+    def _construct_QApp(self):
         QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
@@ -150,8 +154,8 @@ class SDOFmodel:
 
 
 if __name__ == "__main__":
-    SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\7Records')
-    _Win.dir_gm = Path(r'F:\重要数据\小波库\7Records')
+    # SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\7Records')
+    # _Win.dir_gm = Path(r'F:\重要数据\小波库\7Records')
     model = SDOFmodel('LCF', r'G:\LCFwkd')
     model.set_analytical_options(
         'constant_strength',

@@ -11,7 +11,7 @@ def generate_task():
 
     g = 9800
     task = Task('LCF', r'G:\LCFwkd')
-    Task.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    # Task.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     
     # 1 定义模型参数
     # (1) 常数型参数
@@ -25,7 +25,7 @@ def generate_task():
     # zeta = [0.02, 0.03, 0.05, 0.1, 0.2]
     Cy = np.array([0.05, 0.1])
     alpha = [0, 0.02]
-    zeta = [0.02, 0.03]
+    zeta = [0.02, 0.05]
     # (3) 从属参数(通常直接用于SDOF计算的参数)
     get_Fy = lambda m, Cy: m * g * Cy  # 与m, Cy相关
     get_k = lambda T, m: 4 * pi**2 / T**2 * m  # 与T, m相关
@@ -72,8 +72,10 @@ def generate_task():
         if file.suffix == '.json':
             continue
         files.append(file.stem)
-    task.select_ground_motions(files, '.txt')
-    task.scale_ground_motions('e', None, plot=False, spec_from_h5=r'G:\NGAWest2\Spectra.hdf5')
+    # task.select_ground_motions(files, '.txt')
+    # task.scale_ground_motions('e', None, plot=False, spec_from_h5=r'G:\NGAWest2\Spectra.hdf5')
+    task.select_ground_motions(['th1'], '.th')
+    task.scale_ground_motions('e', None, plot=False)
 
     # 5 导出模型
     task.generate_models()
@@ -81,7 +83,7 @@ def generate_task():
 
 def analysis():
 
-    SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    # SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     model = SDOFmodel(json_file=Path('temp')/'LCF.json')
     model.set_analytical_options(
         Path('Output'),
@@ -96,7 +98,7 @@ def analysis():
 
 if __name__ == "__main__":
     
-    _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    # _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     generate_task()
     # analysis()
 
