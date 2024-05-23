@@ -215,6 +215,8 @@ class Curve:
             self.pct_98 = np.percentile(self.y_values, 98, axis=0)
             self.mean = np.mean(self.y_values, axis=0)  # 均值
             self.std = np.std(self.y_values, axis=0)  # 标准差
+        else:
+            self.pcc = np.corrcoef(self.x_values, self.y_values)[0, 1]
 
     def show(self, save_result: bool=False, plotfig=True, plot_scatter=True):
         """展示曲线
@@ -260,6 +262,7 @@ class Curve:
             else:
                 df[self.x_label] = self.x_values
                 df[self.y_label] = self.y_values
+                df['PCC'] = self.pcc
             df.to_csv(self.wkd / f'{self.name}.csv', index=None)
         if plotfig:
             plt.show()

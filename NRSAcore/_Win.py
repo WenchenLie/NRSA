@@ -75,6 +75,7 @@ class _Win(QDialog):
     def kill(self):
         """点击中断按钮"""
         if QMessageBox.question(self, '警告', '是否中断计算？') == QMessageBox.Yes:
+            self.logger.error('已中断计算')
             self.worker.kill()
 
 
@@ -83,9 +84,11 @@ class _Win(QDialog):
         if self.ui.pushButton_3.text() == '暂停':
             self.ui.pushButton_3.setText('继续')
             self.ui.groupBox_2.setTitle('计算信息（已暂停）')
+            self.logger.warning('已暂停计算')
         else:
             self.ui.pushButton_3.setText('暂停')
             self.ui.groupBox_2.setTitle('计算信息')
+            self.logger.warning('已继续计算')
         self.worker.pause_resume()
 
 

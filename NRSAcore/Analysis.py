@@ -156,6 +156,8 @@ class SDOFmodel:
 if __name__ == "__main__":
     # SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\7Records')
     # _Win.dir_gm = Path(r'F:\重要数据\小波库\7Records')
+    SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     model = SDOFmodel('LCF', r'G:\LCFwkd')
     model.set_analytical_options(
         'constant_strength',
