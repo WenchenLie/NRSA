@@ -6,7 +6,8 @@
 SDOF_solver：            普通非线性单自由度体系
 SDOF_batched_solver：    可在同一模型空间下同时建立多个SDOF以进行批量分析
 PDtSDOF_batched_solver： 可进一步考虑P-Delta效应（同样可批量分析）
-注：批量分析目前仅支持相同地震动，
+注：
+批量分析目前仅支持相同地震动，
 但各个SDOF的周期、材料、屈服位移（用于计算累积塑性位移）、倒塌判定位移、最大分析位移均可单独指定。
 各个函数的输入、输出参数可见对应的文档注释和类型注解。
 各个函数计算后返回一个dict，可用的键包括：
@@ -21,6 +22,10 @@ PDtSDOF_batched_solver： 可进一步考虑P-Delta效应（同样可批量分�
 * 累积位移：'CD': float | list[float]]
 * 累积塑性位移：'CPD': float | list[float]]
 * 残余位移：'resDisp': float | list[float]]
+建模方法：
+所有SDOF采用零长度单元建模，采用一致激励对SDOF进行非线性时程分析，节点提取的直接地  
+震响应为相对响应，为了计算结构绝对响应，额外建立一个大质量零刚度的特殊SDOF，用于提  
+取结构的基底位移、速度和加速度，在此基础上计算其余SDOF的绝对响应。
 """
 
 import sys
@@ -33,7 +38,7 @@ import openseespy.opensees as ops
 import matplotlib.pyplot as plt
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
-from utils.utils import SDOF_Error, SDOF_Helper
+from utils.utils import SDOF_Error, SDOF_Helper, a2u
 
 
 __all__ = ['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
@@ -41,20 +46,24 @@ __all__ = ['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
 
 if __name__ == "__main__":
     # 一些全局变量用于储存结构响应时程
-    A = []
-    A_BASE = []
-    V = []
-    U = []
-    U_BASE = []
-    t = []
-    F_LINK = []
-    EV = []
-    EC = []
-    CPD_GB = []
-    V_BASE = []
-    F_RAY = []
-    F_ELE = []
-    TEMP = [0]
+    TIME = []  # 时间序列
+    A_R = []  # 相对加速度
+    A_A = []  # 绝对加速度
+    V_R = []  # 相对速度
+    V_A = []  # 绝对速度
+    U_R = []  # 相对位移
+    U_A = []  # 绝对位移
+    A_BASE = []  # 底部加速度
+    V_BASE = []  # 底部速度
+    U_BASE = []  # 底部位移
+    REACTION = []  # 底部剪力
+    REACTION_HYS = []  # 底部剪力(仅材料内力)
+    REACTION_RAY = []  # 底部剪力(仅阻尼力)
+    E_HYS = []  # 材料累积耗能
+    E_RAY = []  # 阻尼累积耗能
+    CD_ = []  # 累积变形
+    CPD_ = []  # 累积塑性变形
+    TEMP = []  # 其他响应
 
 
 def SDOF_solver(
@@ -269,6 +278,9 @@ class _SDOF_solver:
         self.duration = (self.NPTS - 1) * dt + fv_duration
         self.a = 0
         self.b = 2 * zeta / omega
+        # self.a = 2 * zeta * omega
+        # self.b = 0
+        print(f'a = {self.a}, b = {self.b}')
         self.run_model()
 
 
@@ -277,20 +289,27 @@ class _SDOF_solver:
         ops.model('basic', '-ndm', 2, '-ndf', 3)
         ops.node(1, 0, 0)
         ops.node(2, 0, 0)
+        ops.node(1000, 0, 0)
+        ops.node(2000, 0, 0)   # 用于提取绝对加速度
         ops.fix(1, 1, 1, 1)
         ops.fix(2, 0, 1, 1)
+        ops.fix(1000, 1, 1, 1)
+        ops.fix(2000, 0, 1, 1)
         ops.mass(2, self.m, 0, 0)
+        ops.mass(2000, 1e10, 0, 0)
         matTag = 1
         for matType, paras in self.materials.items():
             ops.uniaxialMaterial(matType, matTag, *_update_para(matTag, *paras))
             matTag += 1
-        ops.uniaxialMaterial('Parallel', matTag + 1, *range(1, matTag))
-        ops.element('zeroLength', 1, 1, 2, '-mat', matTag + 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
+        ops.uniaxialMaterial('Parallel', matTag, *range(1, matTag))
+        matTag += 1
+        ops.uniaxialMaterial('Elastic', matTag, 0)
+        ops.element('zeroLength', 1, 1, 2, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
+        ops.element('zeroLength', 2, 1000, 2000, '-mat', matTag, '-dir', 1, '-doRayleigh', 0)  # 弹塑性
         ops.region(1, '-ele', 1, '-rayleigh', self.a, 0, self.b, 0)  # Rayleigh阻尼
         ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
-        ops.pattern('MultipleSupport', 1)
-        ops.groundMotion(1, 'Plain', '-accel', 1, '-fact', self.SF)
-        ops.imposedMotion(1, 1, 1)
+        ops.pattern('UniformExcitation', 1, 1, '-accel', 1, '-fact', self.SF)
+
         # 分析
         converge, collapse, response = self.time_history_analysis()
         results = dict()
@@ -324,14 +343,14 @@ class _SDOF_solver:
         algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
         algorithm_id = 0
         ops.wipeAnalysis()
-        ops.constraints("Transformation")
+        ops.constraints("Plain")
         ops.numberer("Plain")
         ops.system("BandGeneral")
         ops.test("EnergyIncr", 1.0e-5, 30)
         ops.algorithm("KrylovNewton")
         ops.integrator("Newmark", 0.5, 0.25)
         ops.analysis("Transient")
-
+        
         collapse_flag = False
         maxAna_flag = False
         factor = 1
@@ -389,28 +408,32 @@ class _SDOF_solver:
         """获取分析结果
         """
         maxDisp, maxVel, maxAccel, Ec, Ev, maxReaction, CD, CPD, u_old,\
-            F_Hys_old, F_Ray_old, u_cent, *_ = input_result
+            F_hys_old, F_ray_old, u_cent, *_ = input_result
         # 最大相对位移
-        u = ops.nodeDisp(2, 1) - ops.nodeDisp(1, 1)
+        u = ops.nodeDisp(2, 1)
         du = u - u_old
         maxDisp = max(maxDisp, abs(u))
         # 最大相对速度
-        v = ops.nodeVel(2, 1) - ops.nodeVel(1, 1)
+        v = ops.nodeVel(2, 1)
         maxVel = max(maxVel, abs(v))
         # 最大绝对加速度
-        a = ops.nodeAccel(2, 1)
-        maxAccel = max(maxAccel, abs(a))
+        a_base = -ops.nodeAccel(2000, 1)
+        a_a = a_base + ops.nodeAccel(2, 1)
+        maxAccel = max(maxAccel, abs(a_a))
+        # 最大基底反力
+        ops.reactions('-dynamic', '-rayleigh')
+        F_total = ops.nodeReaction(1, 1)
+        maxReaction = max(maxReaction, abs(F_total))
         # 累积弹塑性耗能
-        F_Hys = ops.eleResponse(1, 'material', 1, 'stress')[0]
-        Si = 0.5 * (F_Hys + F_Hys_old) * du
+        ops.reactions('-dynamic')
+        F_hys = ops.nodeReaction(1, 1)
+        Si = 0.5 * (F_hys + F_hys_old) * du
         Ec += Si
         # 累积Rayleigh耗能
-        F_Ray = ops.eleResponse(1, 'rayleighForces')[0]
-        Si = -0.5 * (F_Ray + F_Ray_old) * du
+        ops.reactions('-rayleigh')
+        F_ray = ops.nodeReaction(1, 1)
+        Si = -0.5 * (F_ray + F_ray_old) * du
         Ev += Si
-        # 最大基底反力
-        F = F_Ray + ops.eleForce(1, 1)
-        maxReaction = max(maxReaction, abs(F))
         # 累积变形
         CD += abs(du)
         # 累积塑性变形
@@ -428,21 +451,35 @@ class _SDOF_solver:
             else:
                 CPD += 0
         if __name__ == "__main__":
-            t.append(ops.getTime())
-            A.append(a)
-            V.append(v)
-            U.append(u)
-            A_BASE.append(ops.nodeAccel(1, 1))
-            U_BASE.append(ops.nodeDisp(1, 1))
-            F_LINK.append(F_Hys)
+            u_base = -ops.nodeDisp(2000, 1)  # 基底位移
+            v_base = -ops.nodeVel(2000, 1)  # 基底速度
+            u_a = u_base + u  # 绝对位移
+            v_a = v_base + v  # 绝对速度
+            a = ops.nodeAccel(2, 1)  # 相对加速度
+            TIME.append(ops.getTime())
+            A_R.append(a)
+            A_A.append(a_a)
+            V_R.append(v)
+            V_A.append(v_a)
+            U_R.append(u)
+            U_A.append(u_a)
+            A_BASE.append(a_base)
+            V_BASE.append(v_base)
+            U_BASE.append(u_base)
+            REACTION.append(F_total)
+            REACTION_HYS.append(F_hys)
+            REACTION_RAY.append(F_ray)
+            E_HYS.append(Ec)
+            E_RAY.append(Ev)
+            CD_.append(CD)
+            CPD_.append(CPD)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, u,\
-            F_Hys, F_Ray, u_cent
+            F_hys, F_ray, u_cent
         # 12个参数
 
-            
-        
+
     def get_results(self) -> dict[str, bool | float]:
         return self.results
 
@@ -471,6 +508,7 @@ class _SDOF_batched_solver:
         self.N_SDOFs = N_SDOFs
         self.ls_T = ls_T
         self.gm = gm
+        self.gm_u = a2u(gm, dt)
         self.dt = dt
         self.ls_materials = ls_materials
         self.ls_uy = ls_uy
@@ -527,11 +565,11 @@ class _SDOF_batched_solver:
             self.ctrlEles.append(eleTag)
             eleTag += 1
         # 时程分析
-        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
+        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm_u, '-factor', self.g)
         ops.pattern('MultipleSupport', 1)
         gmTag = 1
         for tag in self.baseNodes:
-            ops.groundMotion(gmTag, 'Plain', '-accel', 1, '-fact', self.SF[gmTag - 1])
+            ops.groundMotion(gmTag, 'Plain', '-disp', 1, '-fact', self.SF[gmTag - 1])
             ops.imposedMotion(tag, 1, gmTag)
             gmTag += 1
         converge, collapse, response = self.time_history_analysis()
@@ -567,7 +605,8 @@ class _SDOF_batched_solver:
         algorithms = [("KrylovNewton",), ("NewtonLineSearch",), ("Newton",), ("SecantNewton",)]
         algorithm_id = 0
         ops.wipeAnalysis()
-        ops.constraints("Transformation")
+        # ops.constraints("Transformation")
+        ops.constraints("Penalty", 1e19, 1e19)
         ops.numberer("Plain")
         ops.system("BandGeneral")
         ops.test("EnergyIncr", 1.0e-5, 30)
@@ -688,13 +727,30 @@ class _SDOF_batched_solver:
                     CPD[i] += 0
                 ls_u_cent[i] = u_cent
         if __name__ == "__main__":
-            t.append(ops.getTime())
-            A.append(a)
-            V.append(v)
-            U.append(u)
-            A_BASE.append(ops.nodeAccel(1, 1))
-            U_BASE.append(ops.nodeDisp(1, 1))
-            F_LINK.append(F_Hys)
+            TIME.append(ops.getTime())
+            # TODO copy自第一个SDOF求解器
+            # u_base = -ops.nodeDisp(2000, 1)  # 基底位移
+            # v_base = -ops.nodeVel(2000, 1)  # 基底速度
+            # u_a = u_base + u  # 绝对位移
+            # v_a = v_base + v  # 绝对速度
+            # a = ops.nodeAccel(2, 1)  # 相对加速度
+            # TIME.append(ops.getTime())
+            # A_R.append(a)
+            # A_A.append(a_a)
+            # V_R.append(v)
+            # V_A.append(v_a)
+            # U_R.append(u)
+            # U_A.append(u_a)
+            # A_BASE.append(a_base)
+            # V_BASE.append(v_base)
+            # U_BASE.append(u_base)
+            # REACTION.append(F_total)
+            # REACTION_HYS.append(F_hys)
+            # REACTION_RAY.append(F_ray)
+            # E_HYS.append(Ec)
+            # E_RAY.append(Ev)
+            # CD_.append(CD)
+            # CPD_.append(CPD)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, ls_u,\
@@ -996,13 +1052,30 @@ class _PDtSDOF_batched_solver:
                     CPD[i] += 0
                 ls_u_cent[i] = u_cent
         if __name__ == "__main__":
-            t.append(ops.getTime())
-            A.append(a)
-            V.append(v)
-            U.append(u)
-            A_BASE.append(ops.nodeAccel(1, 1))
-            U_BASE.append(ops.nodeDisp(1, 1))
-            F_LINK.append(F_Hys)
+            TIME.append(ops.getTime())
+            # TODO copy自第一个SDOF求解器
+            # u_base = -ops.nodeDisp(2000, 1)  # 基底位移
+            # v_base = -ops.nodeVel(2000, 1)  # 基底速度
+            # u_a = u_base + u  # 绝对位移
+            # v_a = v_base + v  # 绝对速度
+            # a = ops.nodeAccel(2, 1)  # 相对加速度
+            # TIME.append(ops.getTime())
+            # A_R.append(a)
+            # A_A.append(a_a)
+            # V_R.append(v)
+            # V_A.append(v_a)
+            # U_R.append(u)
+            # U_A.append(u_a)
+            # A_BASE.append(a_base)
+            # V_BASE.append(v_base)
+            # U_BASE.append(u_base)
+            # REACTION.append(F_total)
+            # REACTION_HYS.append(F_hys)
+            # REACTION_RAY.append(F_ray)
+            # E_HYS.append(Ec)
+            # E_RAY.append(Ev)
+            # CD_.append(CD)
+            # CPD_.append(CPD)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, ls_u,\
@@ -1036,7 +1109,7 @@ def _update_para(matTag: int, *paras: float | str):
 
 
 if __name__ == "__main__":
-    ls_T = tuple(0.2 for _ in range(1))
+    ls_T = (0.005,)
     T = 0.005
     Cy = 10
     alpha = 0
@@ -1044,12 +1117,13 @@ if __name__ == "__main__":
     Fy = m * 9800 * Cy
     k = 4 * pi**2 / T**2 * m
     uy = Fy / k
-    print(Fy, k)
+    print(f'Fy = {Fy}, k = {k}')
     h = 1
     ls_grav = (0,) * 1
     gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
+    print('Maximun of gm:', max(abs(gm)))
     dt = 0.01
-    materials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
+    materials = tuple({'Steel01': (Fy, k, alpha)} for _ in range(1))
     # PDtMaterials = tuple({'Steel01': (3924, 986.9604401089356, 0.0)} for _ in range(1))
     PDtMaterials = ({'Steel01': (3924, 986.9604401089356, 0.0), 'Parallel': ('^')},)
     material = {'Steel01': (Fy, k, alpha)}
@@ -1063,9 +1137,10 @@ if __name__ == "__main__":
     print(results)
     # print(state)
     # print(result[8][0])
-    plt.plot(U, F_LINK)
+    resType = E_RAY
+    plt.plot(TIME, resType)
     plt.show()
     # np.savetxt(r'F:\NRSA\temp\t.txt', t)
-    # np.savetxt(r'F:\NRSA\temp\A.txt', A)
+    np.savetxt(Path.cwd()/'temp/t-res.txt', np.column_stack((TIME, resType)))
 
 

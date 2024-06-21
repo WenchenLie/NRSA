@@ -11,6 +11,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from loguru import logger
 from PyQt5.QtWidgets import QMessageBox
 from NRSAcore.ModelParameter import ModelParameter
+from scipy.integrate import cumulative_trapezoid
 
 
 logger.remove()
@@ -290,3 +291,20 @@ def integral(y: np.ndarray, x: np.ndarray) -> np.ndarray:
         dx = x[i] - x[i - 1]
         int_y.append((y[i] + y[i - 1]) * dx / 2 + int_y[i - 1])
     return np.array(int_y)
+
+
+def a2u(a: np.ndarray, dx: float) -> np.ndarray:
+    """将加速度积分为位移，并进行基线修正
+
+    Args:
+        a (np.ndarray): 加速度序列
+        dx (float): 加速度步长
+
+    Returns:
+        np.ndarray: 位移序列
+    """
+    v = cumulative_trapezoid(a, dx=dx, initial=0)
+    u = cumulative_trapezoid(v, dx=dx, initial=0)
+    baseline = np.linspace(0, u[-1], len(u))
+    u -= baseline
+    return u
