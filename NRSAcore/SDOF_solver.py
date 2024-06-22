@@ -435,8 +435,8 @@ class _SDOF_solver:
         F_hys = ops.nodeReaction(1, 1)  # F_total = F_ray + F_hys
         maxReaction = max(maxReaction, abs(F_total))
         # 累积弹塑性耗能
-        Si = 0.5 * (F_hys + F_hys_old) * du
-        Ec -= Si
+        Si = -0.5 * (F_hys + F_hys_old) * du
+        Ec += Si
         # 累积Rayleigh耗能
         Si = -0.5 * (F_ray + F_ray_old) * du
         Ev += Si
@@ -1144,7 +1144,7 @@ if __name__ == "__main__":
     print(results)
     # print(state)
     # print(result[8][0])
-    resType = E_HYS
+    resType = E_RAY
     plt.plot(TIME, resType)
     plt.show()
     # np.savetxt(r'F:\NRSA\temp\t.txt', t)
