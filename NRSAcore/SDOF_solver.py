@@ -280,7 +280,11 @@ class _SDOF_solver:
         self.b = 2 * zeta / omega
         # self.a = 2 * zeta * omega
         # self.b = 0
+        # self.a = 0
+        # self.b = 0
         print(f'a = {self.a}, b = {self.b}')
+        # self.c = 2 * m * zeta * omega
+        # print(f'c = {self.c}')
         self.run_model()
 
 
@@ -307,6 +311,8 @@ class _SDOF_solver:
         ops.element('zeroLength', 1, 1, 2, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
         ops.element('zeroLength', 2, 1000, 2000, '-mat', matTag, '-dir', 1, '-doRayleigh', 0)  # 弹塑性
         ops.region(1, '-ele', 1, '-rayleigh', self.a, 0, self.b, 0)  # Rayleigh阻尼
+        # ops.uniaxialMaterial('Viscous', 99, self.c, 1)
+        # ops.element('zeroLength', 99, 1, 2, '-mat', 99, '-dir', 1, '-doRayleigh', 1)
         ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.gm, '-factor', self.g)
         ops.pattern('UniformExcitation', 1, 1, '-accel', 1, '-fact', self.SF)
 
@@ -421,17 +427,17 @@ class _SDOF_solver:
         a_a = a_base + ops.nodeAccel(2, 1)
         maxAccel = max(maxAccel, abs(a_a))
         # 最大基底反力
-        ops.reactions('-dynamic', '-rayleigh')
-        F_total = ops.nodeReaction(1, 1)
-        maxReaction = max(maxReaction, abs(F_total))
-        # 累积弹塑性耗能
         ops.reactions('-dynamic')
-        F_hys = ops.nodeReaction(1, 1)
-        Si = 0.5 * (F_hys + F_hys_old) * du
-        Ec += Si
-        # 累积Rayleigh耗能
+        F_total = ops.nodeReaction(1, 1)
         ops.reactions('-rayleigh')
         F_ray = ops.nodeReaction(1, 1)
+        ops.reactions('-rayleigh', '-dynamic')
+        F_hys = ops.nodeReaction(1, 1)  # F_total = F_ray + F_hys
+        maxReaction = max(maxReaction, abs(F_total))
+        # 累积弹塑性耗能
+        Si = 0.5 * (F_hys + F_hys_old) * du
+        Ec -= Si
+        # 累积Rayleigh耗能
         Si = -0.5 * (F_ray + F_ray_old) * du
         Ev += Si
         # 累积变形
@@ -1110,14 +1116,15 @@ def _update_para(matTag: int, *paras: float | str):
 
 if __name__ == "__main__":
     ls_T = (0.005,)
-    T = 0.005
-    Cy = 10
-    alpha = 0
+    T = 1
+    Cy = 0.2
+    alpha = 0.02
     m = 1
     Fy = m * 9800 * Cy
     k = 4 * pi**2 / T**2 * m
     uy = Fy / k
-    print(f'Fy = {Fy}, k = {k}')
+    print(f'T = {T}, Cy = {Cy}')
+    print(f'Fy = {Fy}, k = {k}, alpha = {alpha}')
     h = 1
     ls_grav = (0,) * 1
     gm = np.loadtxt(Path(__file__).parent.parent/'Input/GMs'/'th1.th')
@@ -1137,7 +1144,7 @@ if __name__ == "__main__":
     print(results)
     # print(state)
     # print(result[8][0])
-    resType = E_RAY
+    resType = E_HYS
     plt.plot(TIME, resType)
     plt.show()
     # np.savetxt(r'F:\NRSA\temp\t.txt', t)
