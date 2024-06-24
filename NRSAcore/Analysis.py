@@ -5,76 +5,90 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
-import h5py
-import pandas as pd 
+import dill as pickle
+import pandas as pd
+from SeismicUtils.Records import Records
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from NRSAcore._Win import _Win
-from utils.utils import SDOF_Error, LOGGER, check_file_exists
+from utils.utils import SDOF_Error, LOGGER
 from utils import utils
 
 
 class SDOFmodel:
+    g = 9800
 
-    dir_main = Path(__file__).parent.parent
-    dir_input = dir_main / 'Input'
-    dir_gm = dir_input / 'GMs'
-
-    def __init__(self, model_name: str, working_directory: str | Path):
-        """导入模型，形成以下三个实例属性
-        * model_overview
-        * model_paras
-        * model_spectra
+    def __init__(self,
+            records_file: Path | str, 
+            overview_file: Path | str,
+            SDOFmodel_file: Path | str,
+            output_dir: Path | str
+        ):
+        """导入地震动文件、模型概览、SDOF模型参数，设置输出文件夹路径
 
         Args:
-            model_name (str): 模型名称
-            working_directory (str | Path): 工作路径文件夹
+            records_file (Path | str): 地震动文件(.pkl)
+            overview_file (Path | str): 模型概览文件(.json)
+            SDOFmodel_file (Path | str): SDOF模型参数(.csv)
+            output_dir (Path | str): 输出文件夹路径
         """
         self.logger = LOGGER
-        self.model_name = model_name
-        self.wkd = Path(working_directory)
-        check_file_exists(self.wkd / f'{model_name}_overview.json')
-        check_file_exists(self.wkd / f'{model_name}_paras.h5')
-        check_file_exists(self.wkd / f'{model_name}_spectra.h5')
-        self._read_files()
+        utils.check_file_exists(records_file)
+        utils.check_file_exists(overview_file)
+        utils.check_file_exists(SDOFmodel_file)
+        utils.creat_folder(output_dir, 'overwrite')
+        self.output_dir = output_dir
+        self._read_files(records_file, overview_file, SDOFmodel_file)
         self._construct_QApp()
         self._get_task_info()
 
-
-    def _read_files(self):
-        """打开三个文件"""
-        with open(self.wkd / f'{self.model_name}_overview.json', 'r') as f:
+    def _read_files(self, records_file, overview_file, SDOFmodel_file):
+        """打开三个文件，获得以下实例属性：
+        * self.records (Records)
+        * self.model_overview (dict)
+        * self.model_paras (DataFrame)
+        """
+        # 读取地震动
+        with open(records_file, 'rb') as f:
+            self.records: Records = pickle.load(f)
+        # 读取模型概览
+        with open(overview_file, 'r') as f:
             self.model_overview: dict = json.load(f)
-        with h5py.File(self.wkd / f'{self.model_name}_paras.h5', 'r') as f:
-            columns = utils.decode_list(f['columns'][:])
-            paras = f['parameters'][:]
-            self.model_paras = pd.DataFrame(paras, columns=columns)
-            self.model_paras['ID'] = self.model_paras['ID'].astype(int)
-            self.model_paras['ground_motion'] = self.model_paras['ground_motion'].astype(int)
-        with h5py.File(self.wkd / f'{self.model_name}_spectra.h5', 'r') as f:
-            self.model_spectra = {}
-            for item in f:
-                if item == 'T':
-                    self.model_spectra['T'] = f['T'][:]
-                else:
-                    self.model_spectra[item] = {}
-                    self.model_spectra[item]['RSA'] = f[item]['RSA'][:]
-                    self.model_spectra[item]['RSV'] = f[item]['RSV'][:]
-                    self.model_spectra[item]['RSD'] = f[item]['RSD'][:]
-
+        # 读取模型参数
+        self.model_paras = pd.read_csv(SDOFmodel_file)
+        # with h5py.File(self.wkd / f'{self.model_name}_paras.h5', 'r') as f:
+        #     columns = utils.decode_list(f['columns'][:])
+        #     paras = f['parameters'][:]
+        #     self.model_paras = pd.DataFrame(paras, columns=columns)
+        #     self.model_paras['ID'] = self.model_paras['ID'].astype(int)
+        #     self.model_paras['ground_motion'] = self.model_paras['ground_motion'].astype(int)
+        # with h5py.File(self.wkd / f'{self.model_name}_spectra.h5', 'r') as f:
+        #     self.model_spectra = {}
+        #     for item in f:
+        #         if item == 'T':
+        #             self.model_spectra['T'] = f['T'][:]
+        #         else:
+        #             self.model_spectra[item] = {}
+        #             self.model_spectra[item]['RSA'] = f[item]['RSA'][:]
+        #             self.model_spectra[item]['RSV'] = f[item]['RSV'][:]
+        #             self.model_spectra[item]['RSD'] = f[item]['RSD'][:]
 
     def _construct_QApp(self):
-        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
-        self.app = QApplication(sys.argv)
-
+        app = QApplication.instance()
+        if not app:
+            QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+            self.app = QApplication(sys.argv)
+        else:
+            self.app = app
 
     def _get_task_info(self):
         """获取分析任务信息"""
-        self.GM_N = len(self.model_overview['ground_motions']['name_dt_SF'])  # 地震动数量
+        self.N_GM: int = self.model_overview['ground_motions']['number']  # 地震动数量
         self.N_SDOF = self.model_overview['N_SDOF']  # 单自由度总数量
+        self.N_cals: int = self.model_overview['total_calculation']  # 所需总计算次数
 
 
     def set_analytical_options(self,
@@ -85,7 +99,6 @@ class SDOFmodel:
             parallel: int=1,
             ductility_tol: float=0.01,
             auto_quit: bool=False,
-            g: float=9800,
             solver: Literal['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']=None):
         """设置分析参数
 
@@ -98,7 +111,6 @@ class SDOFmodel:
             每个子进程处理一条地震波
             ductility_tol (float, optional): 等延性分析时目标延性的收敛容差，默认0.01
             auto_quit (bool, optional): 分析完成后是否自动关闭监控窗口，默认否
-            g (float, optional)：重力加速度(mm/s^2)，默认9800
             solver (str, optional): 指定SDOF求解器，通常会自动选择，也可手动指定
         """
         if analysis_type not in ['constant_ductility', 'constant_strength']:
@@ -143,7 +155,6 @@ class SDOFmodel:
         self.parallel = parallel
         self.ductility_tol = ductility_tol
         self.auto_quit = auto_quit
-        self.g = g
 
 
     def run(self):
@@ -154,11 +165,13 @@ class SDOFmodel:
 
 
 if __name__ == "__main__":
-    # SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\7Records')
-    # _Win.dir_gm = Path(r'F:\重要数据\小波库\7Records')
-    SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    model = SDOFmodel('LCF', r'G:\LCFwkd')
+
+    model = SDOFmodel(
+        r'G:\NRSA_working\3046records.pkl',
+        r'G:\NRSA_working\LCF_overview.json',
+        r'G:\NRSA_working\LCF_SDOFmodels.csv',
+        r'G:\NRSA_working'
+    )
     model.set_analytical_options(
         'constant_strength',
         PDelta=False,
@@ -166,7 +179,7 @@ if __name__ == "__main__":
         auto_quit=False,
         parallel=20
     )
-    model.run()
+    # model.run()
 
 
 

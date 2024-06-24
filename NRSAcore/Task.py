@@ -33,8 +33,6 @@ class Task:
     (4) self.dependent_paras = dict[参数名, list[映射函数, *独立参数名]]  
     (5) self.constant_paras = list[str], 所有常数型参数的参数名  
     """
-    g = 9800
-
     def __init__(self, task_name: str, working_directory: str | Path):
         """创建一个分析任务
 
@@ -61,6 +59,7 @@ class Task:
         self.dependent_paras: dict[str, list[Callable, str]] = {}  # 从属参数
         self.constant_paras = []  # 常数型参数
         self.task_info = {
+            'model_name': self.task_name,
             'para_name': [],  # 所有参数的名称
             'para_values': {},  # 所有参数的值 {参数名: 参数值}
             'constant': [],  # 常数型参数名
@@ -278,14 +277,14 @@ class Task:
     def generate_models(self) -> dict:
         """生成所有SDOF模型的参数，共生成2个文件，分别为：
         * {model_name}_overview.json: 记录了模型概括、参数取值概括、地震动步长等信息
-        * {model_name}_paras.csv: 记录每个SDOF模型所包含的所有参数的详细取值
+        * {model_name}_SDOFmodels.csv: 记录每个SDOF模型所包含的所有参数的详细取值
         """
         self._set_task_info()  # 写入task_info
         self.logger.info(f'正在写入：{self.task_name}_overview.json')
         with open(self.wkd / f'{self.task_name}_overview.json', 'w') as f:
             json.dump(self.task_info, f, indent=4)
         self.logger.success('已生成: ' + str((self.wkd / f'{self.task_name}_overview.json').absolute()))
-        self.all_values.to_csv(self.wkd / f'{self.task_name}_paras.csv', index=False)
+        self.all_values.to_csv(self.wkd / f'{self.task_name}_SDOFmodels.csv', index=False)
         # self.logger.info(f'正在写入：{self.task_name}_paras.h5')
         # with h5py.File(self.wkd / f'{self.task_name}_paras.h5', 'w') as f:
         #     f.create_dataset('columns', data=self.all_values.columns.to_list())
