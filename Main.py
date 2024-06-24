@@ -1,10 +1,8 @@
 from math import pi
 from pathlib import Path
 import numpy as np
-import matplotlib.pyplot as plt
 from NRSAcore.Task import Task
 from NRSAcore.Analysis import SDOFmodel
-from NRSAcore._Win import _Win
 
 
 def generate_task():
@@ -66,14 +64,15 @@ def generate_task():
     task.set_materials(material)
 
     # 4 定义地震动
-    files = []
+    task.records_from_pickle(r'C:\Users\admin\Desktop\records.pkl')
+    # files = []
     # for file in Path(r'F:\重要数据\小波库\7Records').iterdir():
-    for file in Path(r'F:\重要数据\小波库\3046Records').iterdir():
-        if file.suffix == '.json':
-            continue
-        files.append(file.stem)
-    task.select_ground_motions(files, '.txt')
-    task.scale_ground_motions('e', None, plot=False, spec_from_h5=r'G:\NGAWest2\Spectra.hdf5')
+    # for file in Path(r'F:\重要数据\小波库\3046Records').iterdir():
+    #     if file.suffix == '.json':
+    #         continue
+    #     files.append(file.stem)
+    # task.select_ground_motions(files, '.txt')
+    # task.scale_ground_motions('e', None, plot=False, spec_from_h5=r'G:\NGAWest2\Spectra.hdf5')
     # task.select_ground_motions([f'th{i}' for i in range(1, 45)], '.th')
     # task.scale_ground_motions('e', None, plot=False)
 
@@ -97,9 +96,9 @@ def analysis():
 
 if __name__ == "__main__":
     
-    Task.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    # Task.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    # SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
+    # _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
     generate_task()
     # analysis()
 
