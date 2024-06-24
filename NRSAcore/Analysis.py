@@ -87,8 +87,8 @@ class SDOFmodel:
     def _get_task_info(self):
         """获取分析任务信息"""
         self.N_GM: int = self.model_overview['ground_motions']['number']  # 地震动数量
-        self.N_SDOF = self.model_overview['N_SDOF']  # 单自由度总数量
-        self.N_cals: int = self.model_overview['total_calculation']  # 所需总计算次数
+        self.N_SDOF: int = self.model_overview['N_SDOF']  # 单自由度总数量
+        self.N_calc: int = self.model_overview['total_calculation']  # 所需总计算次数
 
 
     def set_analytical_options(self,

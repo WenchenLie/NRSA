@@ -25,59 +25,64 @@ from utils.utils import SDOF_Error
 FUNC = {
     1: SDOF_solver,  # 单个SDOF
     2: SDOF_batched_solver,  # 批量SDOF
-    3: PDtSDOF_batched_solver,  # 批量SDOD考虑PDelta
+    3: PDtSDOF_batched_solver,  # 批量SDOD且考虑PDelta
 }
 
 
 class _Win(QDialog):
-
-    dir_main = Path(__file__).parent.parent
-    dir_input = dir_main / 'Input'
-    dir_gm = dir_input / 'GMs'
-
     def __init__(self, task: SDOFmodel, logger: loguru.Logger) -> None:
         """监控窗口
 
         Args:
             task (SDOFmodel): SDOFmodel类的实例
+            logger (loguru.Logger): 日志
         """
         super().__init__()
         self.ui = Ui_Win()
         self.ui.setupUi(self)
-        self.task = task
+        self.logger = logger
+        self.records = task.records
         self.model_overview = task.model_overview
         self.model_paras = task.model_paras
-        self.model_spectra = task.model_spectra
-        self.logger = logger
+        self.output_dir = task.output_dir
+        self.N_GM = task.N_GM
+        self.N_SDOF = task.N_SDOF
+        self.N_calc = task.N_calc
+        self.func_type = task.func_type
+        self.analysis_type = task.analysis_type
+        self.fv_duration = task.fv_duration
+        self.PDelta = task.PDelta
+        self.batch = task.batch
+        self.parallel = task.parallel
+        self.ductility_tol = task.ductility_tol
+        self.auto_quit = task.auto_quit
+        self.g = task.g
         self.init_ui()
         self.run()
-
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowMinMaxButtonsHint)
         self.ui.pushButton.clicked.connect(self.kill)
         time_start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
         self.ui.label.setText(f'开始时间：{time_start}')
-        if self.task.analysis_type == 'constant_ductility':
+        if self.analysis_type == 'constant_ductility':
             self.ui.label_2.setText('分析类型：等延性')
-        elif self.task.analysis_type == 'constant_strength':
+        elif self.analysis_type == 'constant_strength':
             self.ui.label_2.setText('分析类型：性能需求')
-        self.ui.label_4.setText(f'地震动数量：{self.task.GM_N}')
-        if self.task.PDelta:
+        self.ui.label_4.setText(f'地震动数量：{self.N_GM}')
+        if self.PDelta:
             self.ui.label_5.setText('P-Delta效应：考虑')
         else:
             self.ui.label_5.setText('P-Delta效应：不考虑')
-        self.ui.label_3.setText(f'SDOF数量：{self.task.N_SDOF}')
-        self.ui.label_8.setText(f'SDOF求解器：{FUNC[self.task.func_type].__name__}')
+        self.ui.label_3.setText(f'SDOF数量：{self.N_SDOF}')
+        self.ui.label_8.setText(f'SDOF求解器：{FUNC[self.func_type].__name__}')
         self.ui.pushButton_3.clicked.connect(self.pause_resume)
-        
-        
+
     def kill(self):
         """点击中断按钮"""
         if QMessageBox.question(self, '警告', '是否中断计算？') == QMessageBox.Yes:
             self.logger.error('已中断计算')
             self.worker.kill()
-
 
     def pause_resume(self):
         """暂停或恢复计算"""
@@ -91,21 +96,18 @@ class _Win(QDialog):
             self.logger.warning('已继续计算')
         self.worker.pause_resume()
 
-
     def run(self):
-        self.worker = Worker(self.task, self)
+        self.worker = _Worker(self)
         self.worker.signal_set_progressBar.connect(self.set_progressBar)
         self.worker.signal_set_finished_SDOF.connect(self.set_finished_SDOF)
         self.worker.signal_finish_all.connect(self.finish_all)
         self.worker.start()
-
     
     def set_progressBar(self, tuple_):
         """设置进度条(进度值, 文本)"""
         val, text = tuple_
         self.ui.label_6.setText(text)
         self.ui.progressBar.setValue(val)
-
     
     def set_finished_SDOF(self, int_):
         """设置显示已完成SDOF的数量"""
@@ -113,31 +115,47 @@ class _Win(QDialog):
 
     def finish_all(self):
         self.ui.pushButton_2.setEnabled(True)
-        if self.task.auto_quit:
+        if self.auto_quit:
             self.ui.pushButton_2.click()
 
 
-
-class Worker(QThread):
+class _Worker(QThread):
     """处理计算任务的子线程"""
     signal_set_progressBar = pyqtSignal(tuple)
     signal_set_finished_SDOF = pyqtSignal(int)
     signal_finish_all = pyqtSignal()
 
-    def __init__(self, task: SDOFmodel, win: _Win) -> None:
+    def __init__(self, win: _Win) -> None:
         super().__init__()
-        self.task = task
         self.win = win
-        self.model_overview = task.model_overview
-        self.model_paras = task.model_paras
-        self.model_spectra = task.model_spectra
+        self.model_overview = win.model_overview
+        self.model_paras = win.model_paras
+        self.records = win.records
+        self.output_dir = win.output_dir
+        self.N_GM = win.N_GM
+        self.N_SDOF = win.N_SDOF
+        self.N_calc = win.N_calc
+        self.func_type = win.func_type
+        self.analysis_type = win.analysis_type
+        self.fv_duration = win.fv_duration
+        self.PDelta = win.PDelta
+        self.batch = win.batch
+        self.parallel = win.parallel
+        self.ductility_tol = win.ductility_tol
+        self.auto_quit = win.auto_quit
+        self.g = win.g
         self.logger = self.win.logger
+        # 新定义的实例属性
+        self.reuslt_column = ['id', 'converge', 'collapse', 'maxDisp', 'maxVel',
+            'maxAccel', 'Ec', 'Ev', 'maxReaction', 'CD', 'CPD', 'resDisp']
+        self.results = np.zeros((self.N_calc, len(self.reuslt_column)))  # 储存计算结果的DataFrame
+        self.model_name = self.model_overview['model_name']
         self.queue = multiprocessing.Manager().Queue()  # 进程通信
         self.stop_event = multiprocessing.Manager().Event()  # 中断事件
         self.pause_event = multiprocessing.Manager().Event()  # 暂停事件
         self.pause_event.set()
         self.lock = multiprocessing.Manager().Lock()  # 进程锁
-        
+
     def kill(self):
         """中断计算"""
         self.stop_event.set()
@@ -151,48 +169,44 @@ class Worker(QThread):
 
     def run(self):
         """开始运行子线程"""
-        # self.divide_tasks()
-        if self.task.analysis_type == 'constant_ductility':
+        if self.analysis_type == 'constant_ductility':
             self.run_constant_ductility()
-        elif self.task.analysis_type == 'constant_strength':
+        elif self.analysis_type == 'constant_strength':
             self.run_constant_strength()
-
 
     def run_constant_ductility(self):
         """等延性分析"""
-        s = '（多进程）' if self.task.parallel > 1 else ''
+        s = '（多进程）' if self.parallel > 1 else ''
         self.logger.success(f'开始进行：等延性谱分析{s}')
-        ...  # TODO
-
+        ...  # TODO: 等延性分析
 
     def run_constant_strength(self):
         """等强度分析"""
-        s = '（多进程）' if self.task.parallel > 1 else ''
+        # TODO: 昨晚写到这里
+        s = '（多进程）' if self.parallel > 1 else ''
         self.logger.success(f'开始进行：性能需求谱分析{s}')
         ls_paras: list[tuple] = []
         queue = self.queue
         stop_event = self.stop_event
         pause_event = self.pause_event
         lock = self.lock
-        self.model_results = self.task.wkd / f'{self.task.model_name}_results.h5'  # 生成的结果文件
+        self.model_results = self.output_dir / f'{self.model_name}_results.h5'  # 生成的结果文件
         suffix = self.model_overview['ground_motions']['suffix']
-        batch = self.task.batch
+        batch = self.batch
         for gm_idx, (gm_name, dt, SF) in self.model_overview['ground_motions']['name_dt_SF'].items():
             df_paras = self.model_paras[self.model_paras['ground_motion']==int(gm_idx)]
             ls_SDOF = df_paras['ID'].to_list()
             gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
             args = (queue, stop_event, pause_event, lock, self.model_results,
-                    self.task.func_type, self.model_overview, self.model_paras, ls_SDOF, batch,
-                    gm, dt, self.task.fv_duration, SF, self.task.g, gm_name)
+                    self.func_type, self.model_overview, self.model_paras, ls_SDOF, batch,
+                    gm, dt, self.fv_duration, SF, self.g, gm_name)
             ls_paras.append(args)
-        with multiprocessing.Pool(self.task.parallel) as pool:
-            for i in range(self.task.GM_N):
+        with multiprocessing.Pool(self.parallel) as pool:
+            for i in range(self.N_GM):
                 pool.apply_async(_run_constant_strength, ls_paras[i])  # 设置进程池
             self.get_queue(queue)
             pool.close()
             pool.join()
-
-            
 
     def get_queue(self, queue: multiprocessing.Queue):
         """进程通讯"""
@@ -205,7 +219,7 @@ class Worker(QThread):
                     # other: 该条地震动计算的SDOF数量
                     finished_GM += 1
                     finished_SDOF += other[0]
-                    self.signal_set_progressBar.emit((int(finished_GM/self.task.GM_N*100), f'已计算地震动：{finished_GM}'))
+                    self.signal_set_progressBar.emit((int(finished_GM/self.N_GM)*100), f'已计算地震动：{finished_GM}')
                     self.signal_set_finished_SDOF.emit(finished_SDOF)
                 elif flag == 'h':  # 中断计算
                     # other = '中断计算'
@@ -215,7 +229,7 @@ class Worker(QThread):
                     # other: 异常
                     print(other[1])
                     raise other[0]
-                if finished_GM == self.task.GM_N:
+                if finished_GM == self.N_GM:
                     # 所有计算完成
                     self.logger.success('计算完成')
                     self.logger.success(f'生成结果文件：{self.model_results}')
@@ -441,3 +455,36 @@ def _write_result(
     else:
         lock.release()
         return
+
+# TODO:
+def _update_result_file(h5_file: Path | str, results: np.ndarray):
+    """追加保存至.h5文件
+
+    Args:
+        h5_file (Path | str): .h5文件路径
+        results (np.ndarray): 结果文件
+    """
+    pass
+
+# TODO:
+def _load_result_file(h5_file: Path | str):
+    """加载结果文件(用于重启动计算)
+
+    Args:
+        h5_file (Path | str): .h5文件路径
+    """
+    pass
+
+
+# TODO:
+"""
+计算结果保存策略
+首先定义1300_0000x10的ndarray，第一列改成id，计算过程中不断修改ndarray
+的行，到达保存数据的节点时，将其转换为DadaFrame，然后用下面代码追加写入
+h5文件：
+>>> with pd.HDFStore(hdf5_file, 'a') as store: 
+>>>     df = pd.DataFrame(arr, columns=['id']+['other_responses']*9)
+>>>     df['id'] = df['id'].astype(int)
+>>>     store.append('results', df, index=False, append=False,
+                     complib='blosc:zstd', complevel=2)   
+"""
