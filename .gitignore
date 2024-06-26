@@ -162,7 +162,7 @@ cython_debug/
 
 Verification/
 test.tcl
-test.py
+test*.py
 /__pycache__
 QuickConvert.bat
 ui2py_Converter.py
@@ -170,4 +170,4 @@ Output
 temp
 tools
 test
-test1
+

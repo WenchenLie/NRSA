@@ -9,8 +9,8 @@ import traceback
 import multiprocessing
 from pathlib import Path
 
-import h5py
 import loguru
+import dill as pickle
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
@@ -58,6 +58,12 @@ class _Win(QDialog):
         self.auto_quit = task.auto_quit
         self.g = task.g
         self.N_response_types = task.N_response_types
+        self.save_interval = task.save_interval
+        self.finished_id = task.finished_id
+        self.finished_gm = task.finished_gm
+        self.analysis_options = task.analysis_options
+        self.is_restart = task.is_restart
+        self.save_start = time.time()  # 每一次保存结果后的最新时间戳
         self.init_ui()
         self.run()
 
@@ -65,28 +71,33 @@ class _Win(QDialog):
         self.setWindowFlags(Qt.WindowMinMaxButtonsHint)
         self.ui.pushButton.clicked.connect(self.kill)
         time_start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
-        self.ui.label.setText(f'开始时间：{time_start}')
+        s = '重启动' if self.is_restart else ''
+        self.ui.label.setText(f'{s}开始时间：{time_start}')
         if self.analysis_type == 'constant_ductility':
             self.ui.label_2.setText('分析类型：等延性')
         elif self.analysis_type == 'constant_strength':
             self.ui.label_2.setText('分析类型：性能需求')
         self.ui.label_4.setText(f'地震动数量：{self.N_GM}')
-        if self.PDelta:
-            self.ui.label_5.setText('P-Delta效应：考虑')
-        else:
-            self.ui.label_5.setText('P-Delta效应：不考虑')
+        self.ui.label_5.setText(f'多进程计算核心数：{self.parallel}')
         model_name = self.model_overview['model_name']
         self.ui.label_10.setText(f'任务名：{model_name}')
         self.ui.label_3.setText(f'SDOF数量：{self.N_SDOF}')
         self.ui.label_9.setText(f'总计算数：{self.N_calc}')
         self.ui.label_8.setText(f'SDOF求解器：{FUNC[self.func_type].__name__}')
         self.ui.pushButton_3.clicked.connect(self.pause_resume)
+        self.ui.pushButton_4.clicked.connect(self.save)
+        self.set_progressBar((int(len(self.finished_gm)/self.N_GM*100), f'已计算地震动：{len(self.finished_gm)}'))
+        self.set_finished_SDOF(len(self.finished_id))
 
     def kill(self):
         """点击中断按钮"""
         if QMessageBox.question(self, '警告', '是否中断计算？') == QMessageBox.Yes:
-            self.logger.error('已中断计算')
+            self.logger.warning('已中断计算')
             self.worker.kill()
+
+    def save(self):
+        """手动保存"""
+        self.worker._check_save(True)
 
     def pause_resume(self):
         """暂停或恢复计算"""
@@ -149,25 +160,25 @@ class _Worker(QThread):
         self.auto_quit = win.auto_quit
         self.g = win.g
         self.N_response_types = win.N_response_types
-        self.logger = self.win.logger
+        self.save_interval = win.save_interval
+        self.save_start = win.save_start
+        self.logger = win.logger
+        self.finished_id = win.finished_id  # 已完成的id
+        self.finished_gm = win.finished_gm  # 已完成的地震动名
+        self.analysis_options = win.analysis_options
         # 新定义的实例属性
+        self.model_name = self.model_overview['model_name']
         self.reuslt_column = ['id', 'converge', 'collapse', 'maxDisp', 'maxVel',
             'maxAccel', 'Ec', 'Ev', 'maxReaction', 'CD', 'CPD', 'resDisp']
         self.results_L1 = np.zeros((self.N_calc, len(self.reuslt_column)))
         self.results_L1[:, 0] = np.arange(1, len(self.results_L1) + 1, 1)
-        self.model_name = self.model_overview['model_name']
+        self.result_file = Path(self.output_dir) / f'{self.model_name}.h5'
+        self.is_running: bool = True
         self.queue = multiprocessing.Manager().Queue()  # 进程通信
         self.stop_event = multiprocessing.Manager().Event()  # 中断事件
         self.pause_event = multiprocessing.Manager().Event()  # 暂停事件
         self.pause_event.set()
         self.lock = multiprocessing.Manager().Lock()  # 进程锁
-
-    # def creat_shared_var(self):
-    #     """创建多进程共享变量"""
-    #     self.results_L1 = multiprocessing.Array('f', np.prod(self.N_calc, len(self.reuslt_column)), lock=False)
-    #     self.results_L1[:, 0] = np.arange(1, len(self.results_L1) + 1, 1)
-    #     self.N_response_types = multiprocessing.Value('H', self.N_response_types, lock=False)
-    #     self.test_var = '----test----'  # HACK:
 
     def kill(self):
         """中断计算"""
@@ -208,13 +219,15 @@ class _Worker(QThread):
             gm_name = self.records.get_record_name()[gm_idx]
             df_paras = self.model_paras[self.model_paras['ground_motion']==int(gm_idx+1)]
             ls_SDOF = df_paras['ID'].to_list()
-            args = (self.N_response_types, queue, stop_event, pause_event, lock, self.func_type,
-                    self.model_overview, self.model_paras, ls_SDOF, batch, gm, dt, self.fv_duration,
-                    SF, self.g, gm_name)
+            args = (self.N_response_types, queue, stop_event, pause_event,
+                    lock, self.func_type, self.model_overview, self.model_paras,
+                    ls_SDOF, batch, gm, dt, self.fv_duration, SF, self.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.parallel) as pool:
             for i in range(self.N_GM):
                 # 一个进程处理一条地震动的所有计算
+                if self.records.get_record_name()[i] in self.finished_gm:
+                    continue  # 重启动时如果该地震动已完成计算，则跳过
                 pool.apply_async(_run_constant_strength, ls_paras[i])  # 设置进程池
             self.get_queue(queue)
             pool.close()
@@ -222,8 +235,8 @@ class _Worker(QThread):
 
     def get_queue(self, queue: multiprocessing.Queue):
         """进程通讯"""
-        finished_GM = 0  # 已计算完成的地震动
-        finished_SDOF = 0  # 已计算完成的SDOF
+        finished_GM = len(self.finished_gm)  # 已计算完成的地震动
+        finished_SDOF_num = len(self.finished_id)  # 已计算完成的SDOF
         while True:
             if not queue.empty():
                 for key, value in queue.get().items():
@@ -231,27 +244,45 @@ class _Worker(QThread):
                 if flag == 'a':  # 地震动完成
                     # other: 该条地震动计算的SDOF数量
                     finished_GM += 1
-                    finished_SDOF += contents
+                    finished_SDOF_num += contents
                     self.signal_set_progressBar.emit((int(finished_GM/self.N_GM*100), f'已计算地震动：{finished_GM}'))
-                    self.signal_set_finished_SDOF.emit(finished_SDOF)
+                    self.signal_set_finished_SDOF.emit(finished_SDOF_num)
                 elif flag == 'b':  # 传递该条地震动得到的结果
                     # 在地震动完成计算时收到
-                    results_L2, ls_SDOF = contents
+                    results_L2, ls_SDOF, gm_name = contents
+                    self.finished_id += ls_SDOF
+                    self.finished_gm.append(gm_name)
+                    self.finished_id = list(set(self.finished_id))
+                    self.finished_gm = list(set(self.finished_gm))
                     self.L2_to_L1(results_L2, ls_SDOF)
                 elif flag == 'h':  # 中断计算
                     # other = '中断计算'
                     self.signal_finish_all.emit()
+                    error = self._check_save(True)
+                    if error:
+                        raise error
                     break
                 elif flag == 'i':  # 异常
                     # other: 异常
                     print(contents[1])
+                    error = self._check_save(True)
+                    if error:
+                        raise error
                     raise contents[0]
                 if finished_GM == self.N_GM:
                     # 所有计算完成
-                    self.logger.success('计算完成')
-                    self.logger.success(f'生成结果文件：{self.model_results}')
+                    self.logger.success('所有计算完成')
+                    self.is_running = False
                     self.signal_finish_all.emit()
+                    error = self._check_save(True)
+                    if error:
+                        raise error
                     break
+            else:
+                time.sleep(1)
+                error = self._check_save()
+                if error:
+                    raise error
 
     def L2_to_L1(self,
             results_L2: np.ndarray,
@@ -279,6 +310,63 @@ class _Worker(QThread):
             self.lock.release()
             return
 
+    def _check_save(self, always_save: bool=False):
+        """每隔一段时间保存结果至.h5文件
+
+        Args:
+            always_save (bool, optional): 为True时每次调用都会保存文件
+
+        Returns:
+            _type_: _description_
+        """
+        self.pause_event.wait()
+        if (time.time() - self.save_start > self.save_interval) or always_save:
+            self.lock.acquire()
+            self.save_start = time.time()
+            df_code = pd.DataFrame([self.model_overview['verification_code']])
+            df_finished_id = pd.DataFrame(self.finished_id)
+            df_finished_gm = pd.DataFrame(self.finished_gm)
+            name = self.result_file.stem
+            file_running = self.result_file.parent / f'running_{name}.h5'
+            file_finished = self.result_file
+            if self.is_running:
+                # 计算正在进行中
+                df_status = pd.DataFrame([1])
+                file = file_running
+            else:
+                # 计算已经完成
+                df_status = pd.DataFrame([0])
+                file = file_finished
+                if file_running.exists():
+                    file_running.unlink()
+            try:
+                self.analysis_options['finished_id'] = self.finished_id
+                self.analysis_options['finished_gm'] = self.finished_gm
+                with open(self.output_dir/f'{self.model_name}.instance', 'wb') as f:
+                    pickle.dump(self.analysis_options, f)
+                with pd.HDFStore(file, 'a') as store:
+                    df = pd.DataFrame(self.results_L1, columns=self.reuslt_column)
+                    df['id'] = df['id'].astype(int)
+                    df['converge'] = df['converge'].astype(int)
+                    df['collapse'] = df['collapse'].astype(int)
+                    store.append('results', df, index=False, append=False, complib='blosc:zstd', complevel=2)
+                    store.append('status', df_status, index=False, append=False)
+                    store.append('verification_code', df_code, index=False, append=False)
+                    store.append('finished_id', df_finished_id, index=False, append=False, complib='blosc:zstd', complevel=2)
+                    store.append('finished_gm', df_finished_gm, index=False, append=False, complib='blosc:zstd', complevel=2)
+                self.logger.info(f'已保存结果至 {file.name}')
+            except Exception as error:
+                self.lock.release()
+                if type(error).__name__ == 'HDF5ExtError':
+                    self.logger.error(f'无法写入{file.name}，如果打开了请关闭！')
+                    return
+                return error
+            else:
+                self.lock.release()
+                return
+        else:
+            return
+        
 def _run_constant_strength(*args, **kwargs):
     """SDOF计算函数，每次调用求解一条地震动
 
@@ -298,8 +386,6 @@ def _run_constant_strength(*args, **kwargs):
 
         后续参数见SDOF求解器
     """
-    # results_L1: np.ndarray
-    N_response_types: int
     queue: multiprocessing.Queue
     stop_event: multiprocessing.Event
     pause_event: multiprocessing.Event
@@ -316,7 +402,6 @@ def _run_constant_strength(*args, **kwargs):
     g: float
     gm_name: str
     try:
-        # results_L1, N_response_types,\
         N_response_types,\
         queue, stop_event, pause_event, lock, func_type, model_overview, model_paras,\
         ls_SDOF, batch, gm, dt, fv_duration, SF, g, gm_name = args
@@ -420,10 +505,7 @@ def _run_constant_strength(*args, **kwargs):
                 results_L2[line_idx: line_idx + N_SDOFs] = np.array(list(results_L3.values())).T
                 line_idx += N_SDOFs
                 finished_SDOF += N_SDOFs
-        # error = _L2_to_L1(results_L1, results_L2, ls_SDOF, lock)
-        # if error is not None:
-        #     raise error
-        queue.put({'b': (results_L2, ls_SDOF)})
+        queue.put({'b': (results_L2, ls_SDOF, gm_name)})
         queue.put({'a': finished_SDOF})
     except Exception as e:
         tb = traceback.format_exc()
@@ -456,55 +538,19 @@ def _parse_material(model_overview: dict, model_paras: pd.DataFrame, id_: int) -
         materials[matType] = paras
     return materials
 
-def _L2_to_L1(
-        results_L1: np.ndarray,
-        results_L2: np.ndarray,
-        ls_SDOF: list[int],
-        lock: multiprocessing.Lock
-    ):
-    """将SDOF计算结果写入cls.results
 
-    Args:
-        results_L1 (np.ndarray): 所有分析结果
-        results_L2 (np.ndarray): 某地震动下计算得到的L2结果
-        ls_SDOF (list[int]): 结果对应的id
-        lock (multiprocessing.Lock): 进程锁
-    """
-    lock.acquire()
-    try:
-        if not len(results_L2) == len(ls_SDOF):
-            # L1的行数与ls_SDOF的长度必须相等，保证结果与id一一对应
-            lock.release()
-            raise SDOF_Error('_Win.py, _write_results, Error - 1')
-        for id_ in ls_SDOF:
-            idx = id_ - 1
-            results_L1[idx, 1:] = results_L2[idx]  # L2写入L1
-    except Exception as error:
-        lock.release()
-        return error
-    else:
-        lock.release()
-        return
-
-# TODO:
-def _load_result_file(h5_file: Path | str):
-    """加载结果文件(用于重启动计算)
-
-    Args:
-        h5_file (Path | str): .h5文件路径
-    """
-    pass
-
-
-# TODO:
 """
 计算结果保存策略
 首先定义1300_0000x10的L1变量，第一列改成id，每条地震动计算后通过queue
 传递L2，在主进程将L2写入L1，当到达保存数据的节点时，将其转换为DadaFrame，
 然后用下面代码追加写入.h5(file)文件：
->>> with pd.HDFStore(hdf5_file, 'a') as store: 
+>>> with pd.HDFStore(hdf5_file, 'a') as store:
 >>>     df = pd.DataFrame(arr, columns=['id']+['other_responses']*N_response_types)
 >>>     df['id'] = df['id'].astype(int)
 >>>     store.append('results', df, index=False, append=False,
-                     complib='blosc:zstd', complevel=2)   
+                     complib='blosc:zstd', complevel=2)
+要读取.h5文件，可使用：
+>>> with pd.HDFStore(hdf5_file, 'r') as store:  
+>>>     df = store['result']
+>>>     df = df.sort_values(by='id')
 """

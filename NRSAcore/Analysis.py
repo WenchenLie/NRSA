@@ -35,13 +35,15 @@ class SDOFmodel:
             output_dir (Path | str): 输出文件夹路径
         """
         self.logger = LOGGER
+        self.is_restart = False  # 是否属于重启动
+        self.finished_id: list[int] = []  # 已完成的SDOF编号
+        self.finished_gm: list[str] = []  # 已完成的地震动
         utils.check_file_exists(records_file)
         utils.check_file_exists(overview_file)
         utils.check_file_exists(SDOFmodel_file)
         utils.creat_folder(output_dir, 'overwrite')
         self.output_dir = Path(output_dir)
         self._read_files(records_file, overview_file, SDOFmodel_file)
-        self._construct_QApp()
         self._get_task_info()
 
     def _read_files(self, records_file, overview_file, SDOFmodel_file):
@@ -58,22 +60,6 @@ class SDOFmodel:
             self.model_overview: dict = json.load(f)
         # 读取模型参数
         self.model_paras = pd.read_csv(SDOFmodel_file)
-        # with h5py.File(self.wkd / f'{self.model_name}_paras.h5', 'r') as f:
-        #     columns = utils.decode_list(f['columns'][:])
-        #     paras = f['parameters'][:]
-        #     self.model_paras = pd.DataFrame(paras, columns=columns)
-        #     self.model_paras['ID'] = self.model_paras['ID'].astype(int)
-        #     self.model_paras['ground_motion'] = self.model_paras['ground_motion'].astype(int)
-        # with h5py.File(self.wkd / f'{self.model_name}_spectra.h5', 'r') as f:
-        #     self.model_spectra = {}
-        #     for item in f:
-        #         if item == 'T':
-        #             self.model_spectra['T'] = f['T'][:]
-        #         else:
-        #             self.model_spectra[item] = {}
-        #             self.model_spectra[item]['RSA'] = f[item]['RSA'][:]
-        #             self.model_spectra[item]['RSV'] = f[item]['RSV'][:]
-        #             self.model_spectra[item]['RSD'] = f[item]['RSD'][:]
 
     def _construct_QApp(self):
         app = QApplication.instance()
@@ -91,7 +77,6 @@ class SDOFmodel:
         self.N_SDOF: int = self.model_overview['N_SDOF']  # 单自由度总数量
         self.N_calc: int = self.model_overview['total_calculation']  # 所需总计算次数
 
-
     def set_analytical_options(self,
             analysis_type: Literal['constant_ductility', 'constant_strength'],
             fv_duration: float=0,
@@ -100,7 +85,8 @@ class SDOFmodel:
             parallel: int=1,
             ductility_tol: float=0.01,
             auto_quit: bool=False,
-            solver: Literal['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']=None):
+            solver: Literal['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']=None,
+            save_interval: float=None):
         """设置分析参数
 
         Args:
@@ -113,6 +99,7 @@ class SDOFmodel:
             ductility_tol (float, optional): 等延性分析时目标延性的收敛容差，默认0.01
             auto_quit (bool, optional): 分析完成后是否自动关闭监控窗口，默认否
             solver (str, optional): 指定SDOF求解器，通常会自动选择，也可手动指定
+            save_interval (float, optional): 保存间隔(s)，若不指定则不定时保存
         """
         if analysis_type not in ['constant_ductility', 'constant_strength']:
             raise SDOF_Error(f'未知分析类型：{analysis_type}')
@@ -156,13 +143,84 @@ class SDOFmodel:
         self.parallel = parallel
         self.ductility_tol = ductility_tol
         self.auto_quit = auto_quit
-
+        if save_interval is None:
+            save_interval = 1e10
+        else:
+            self.logger.info(f'结果将每隔 {save_interval}s 保存一次')
+        self.solver = solver
+        self.save_interval = save_interval
 
     def run(self):
         """开始运行分析"""
+        self._get_analysis_options()
+        if not self.is_restart:
+            model_name = self.model_overview['model_name']
+            with open(self.output_dir/f'{model_name}.instance', 'wb') as f:
+                pickle.dump(self.analysis_options, f)
+        self._construct_QApp()
         win = _Win(self, self.logger)
         win.show()
-        self.app.exec_() 
+        self.app.exec_()
+
+    def _get_analysis_options(self):
+        """获取set_analytical_options方法调用时传入的参数以及已经完成的id和gm"""
+        self.analysis_options = {}
+        self.analysis_options['analysis_type'] = self.analysis_type
+        self.analysis_options['fv_duration'] = self.fv_duration
+        self.analysis_options['PDelta'] = self.PDelta
+        self.analysis_options['batch'] = self.batch
+        self.analysis_options['parallel'] = self.parallel
+        self.analysis_options['ductility_tol'] = self.ductility_tol
+        self.analysis_options['auto_quit'] = self.auto_quit
+        self.analysis_options['solver'] = self.solver
+        self.analysis_options['save_interval'] = self.save_interval
+        self.analysis_options['finished_id'] = []
+        self.analysis_options['finished_gm'] = []
+        self.analysis_options['verification_code'] = self.model_overview['verification_code']
+        
+    @classmethod
+    def restart(cls,
+            records_file: Path | str, 
+            overview_file: Path | str,
+            SDOFmodel_file: Path | str,
+            output_dir: Path | str,
+            pkl_file: Path | str
+        ):
+        """重启动分析
+
+        Args:
+            records_file (Path | str): 地震动文件(.pkl)
+            overview_file (Path | str): 模型概览文件(.json)
+            SDOFmodel_file (Path | str): SDOF模型参数(.csv)
+            output_dir (Path | str): 输出文件夹路径
+            pkl_file (Path | str): 上一次计算时生成的instance文件(.instance)
+        """
+        pkl_file = Path(pkl_file)
+        utils.check_file_exists(pkl_file)
+        with open(pkl_file, 'rb') as f:
+            analysis_options: dict = pickle.load(f)
+        instance = cls(records_file, overview_file, SDOFmodel_file, output_dir)
+        # 检查校验码
+        code1 = instance.model_overview['verification_code']
+        code2 = analysis_options['verification_code']
+        if not code1 == code2:
+            raise SDOF_Error(f'{overview_file.name}与{pkl_file.name}的校验码不符')
+        instance.set_analytical_options(
+            analysis_options['analysis_type'],
+            analysis_options['fv_duration'],
+            analysis_options['PDelta'],
+            analysis_options['batch'],
+            analysis_options['parallel'],
+            analysis_options['ductility_tol'],
+            analysis_options['auto_quit'],
+            analysis_options['solver'],
+            analysis_options['save_interval'],
+        )
+        instance.finished_id = analysis_options['finished_id']
+        instance.finished_gm = analysis_options['finished_gm']
+        instance.is_restart = True
+        return instance
+        
 
 
 if __name__ == "__main__":

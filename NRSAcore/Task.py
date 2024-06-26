@@ -1,20 +1,18 @@
 import sys
 import json
 import itertools
-from math import pi
+import string
+import random
 from pathlib import Path
 from typing import Literal, Callable
 if __name__ == "__main__":
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
-import h5py
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import dill as pickle
 from SeismicUtils.Records import Records
 
-from NRSAcore.Spectrum import Spectrum
 from NRSAcore.Records import Records
 from utils.utils import Task_Error, LOGGER
 from utils import utils
@@ -42,6 +40,8 @@ class Task:
         """
         working_directory = Path(working_directory)
         self.task_name = task_name
+        characters = string.ascii_letters + string.digits  # 随机生成32位校验码
+        self.verification_code = ''.join(random.choice(characters) for _ in range(32))
         self.wkd = working_directory
         self.logger = LOGGER
         self.logger.success('欢迎使用非线性反应谱分析程序')
@@ -60,6 +60,7 @@ class Task:
         self.constant_paras = []  # 常数型参数
         self.task_info = {
             'model_name': self.task_name,
+            'verification_code': self.verification_code,  # 32位校验码
             'para_name': [],  # 所有参数的名称
             'para_values': {},  # 所有参数的值 {参数名: 参数值}
             'constant': [],  # 常数型参数名
@@ -79,18 +80,14 @@ class Task:
             'N_SDOF': None,  # 所有参数所有组合情况，依次为独立参数，常数型参数，从属参数
             'total_calculation': None
         }
-
     
     def _get_values(self, name: str) -> float | int | np.ndarray | list:
         """根据参数名获取参数值"""
         return self.paras[name][0]
 
-
     def _get_type(self, name: str) -> Literal[1, 2, 3]:
         """根据参数名获取参数类型"""
         return self.paras[name][1]
-
-
 
     def add_constant(self, name: str, value: int | float):
         """设置常数型参数（如阻尼比等）
@@ -109,7 +106,6 @@ class Task:
         self.constant_paras.append(name)
         self.logger.info(f'添加常数型参数 {name} = {value}')
 
-
     def add_independent_parameter(self, name: str, value: list | np.ndarray):
         """设置独立参数（如周期等）
 
@@ -126,7 +122,6 @@ class Task:
         self.paras[name] = (value, 2)
         self.independent_paras.append(name)
         self.logger.info(f'添加独立参数 {name} = {value}')
-
     
     def add_dependent_parameter(self, name: str, func: Callable, *independent_paras: str):
         """设置从属参数
@@ -148,7 +143,6 @@ class Task:
         self.paras[name] = (None, 3)
         self.dependent_paras[name] = [func, *independent_paras]
         self.logger.info(f'添加从属参数 {name} = func{independent_paras}')
-        
 
     def define_basic_parameters(self,
             period: str,
@@ -160,7 +154,7 @@ class Task:
             yield_strength: str=None,
             collapse_disp: str=None,
             maxAnaDisp: str=None,
-            ):
+        ):
         """定义一些SDOF模型的基本参数，即运行SDOF需要的直接参数
 
         Args:
@@ -190,7 +184,6 @@ class Task:
         self.maxAnaDisp = maxAnaDisp
         self.logger.success(f'已定义结构周期，共 {len(self._get_values(period))} 种')
 
-
     def set_materials(self, materials: dict[str, tuple[str | int, float, list, np.ndarray]]):
         """设置模型材料
 
@@ -217,7 +210,6 @@ class Task:
         self.logger.success(f'已识别参数: {identified_paras}')
         self.materials = materials
         self.material_paras = list(identified_paras)  # 定义SDOF材料需要用到的参数
-
 
     @staticmethod
     def identify_para(para: str) -> str | None:
@@ -276,20 +268,15 @@ class Task:
 
     def generate_models(self) -> dict:
         """生成所有SDOF模型的参数，共生成2个文件，分别为：
-        * {model_name}_overview.json: 记录了模型概括、参数取值概括、地震动步长等信息
-        * {model_name}_SDOFmodels.csv: 记录每个SDOF模型所包含的所有参数的详细取值
+        * {model_name}.json: 记录了模型概括、参数取值概括、地震动步长等信息
+        * {model_name}.csv: 记录每个SDOF模型所包含的所有参数的详细取值
         """
         self._set_task_info()  # 写入task_info
-        self.logger.info(f'正在写入：{self.task_name}_overview.json')
-        with open(self.wkd / f'{self.task_name}_overview.json', 'w') as f:
+        self.logger.info(f'正在写入：{self.task_name}.json')
+        with open(self.wkd / f'{self.task_name}.json', 'w') as f:
             json.dump(self.task_info, f, indent=4)
-        self.logger.success('已生成: ' + str((self.wkd / f'{self.task_name}_overview.json').absolute()))
-        self.all_values.to_csv(self.wkd / f'{self.task_name}_SDOFmodels.csv', index=False)
-        # self.logger.info(f'正在写入：{self.task_name}_paras.h5')
-        # with h5py.File(self.wkd / f'{self.task_name}_paras.h5', 'w') as f:
-        #     f.create_dataset('columns', data=self.all_values.columns.to_list())
-        #     f.create_dataset('parameters', data=self.all_values.to_numpy())
-        # self.logger.success('已生成: ' + str((self.wkd / f'{self.task_name}_paras.h5').absolute()))
+        self.logger.success('已生成: ' + str((self.wkd / f'{self.task_name}.json').absolute()))
+        self.all_values.to_csv(self.wkd / f'{self.task_name}.csv', index=False)
         self.logger.success(f'共生成 {self.N_SDOF} 个SDOF模型')
         self.logger.success(f'共需进行 {self.N_calc} 次计算')
 
