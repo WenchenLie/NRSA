@@ -5,8 +5,6 @@ import string
 import random
 from pathlib import Path
 from typing import Literal, Callable
-if __name__ == "__main__":
-    sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
 import numpy as np
 import pandas as pd
@@ -18,26 +16,8 @@ from utils.utils import Task_Error, LOGGER
 from utils import utils
 
 
-class Task:
-    """
-    生成SDOF分析任务  
-    关键实例属性：  
-    (1) self.paras = {参数名: (参数值, 参数类型)}  
-    参数名: str  
-    参数值：int | float | list  
-    参数类型: Literal[1, 2, 3], 1-常数型, 2-独立参数, 3-从属参数  
-    (2) self.task_info, 用于生成json文件的记录所有SDOF模型信息的字典  
-    (3) self.independent_paras = list[str], 所有独立参数的参数名  
-    (4) self.dependent_paras = dict[参数名, list[映射函数, *独立参数名]]  
-    (5) self.constant_paras = list[str], 所有常数型参数的参数名  
-    """
+class _Task:
     def __init__(self, task_name: str, working_directory: str | Path):
-        """创建一个分析任务
-
-        Args:
-            task_name (str): 任务名称
-            working_directory (str | Path): 工作路径文件夹
-        """
         working_directory = Path(working_directory)
         self.task_name = task_name
         characters = string.ascii_letters + string.digits  # 随机生成32位校验码
@@ -351,4 +331,3 @@ class Task:
         self.task_info['N_SDOF'] = self.N_SDOF
         self.task_info['total_calculation'] = self.N_calc
         self.all_values = values
-

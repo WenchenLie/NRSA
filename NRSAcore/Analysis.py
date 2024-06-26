@@ -2,8 +2,6 @@ import sys
 import json
 from typing import Literal
 from pathlib import Path
-if __name__ == "__main__":
-    sys.path.append(str(Path(__file__).parent.parent.absolute()))
 
 import dill as pickle
 import pandas as pd
@@ -16,7 +14,7 @@ from utils.utils import SDOF_Error, LOGGER
 from utils import utils
 
 
-class SDOFmodel:
+class _SDOFmodel:
     g = 9800
     N_response_types = 11  # SDOF响应类型的数量
 
@@ -225,7 +223,8 @@ class SDOFmodel:
 
 if __name__ == "__main__":
 
-    model = SDOFmodel(
+    sys.path.append(str(Path(__file__).parent.parent.absolute()))
+    model = _SDOFmodel(
         r'G:\NRSA_working\3046records.pkl',
         r'G:\NRSA_working\LCF_overview.json',
         r'G:\NRSA_working\LCF_SDOFmodels.csv',

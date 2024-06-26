@@ -513,7 +513,7 @@ class _SDOF_batched_solver:
             g: float=9800,
             ls_collapse_disp: tuple[float, ...]=(1e14,)*1000000,
             ls_maxAnalysis_disp: tuple[float, ...]=(1e15,)*1000000,):
-        time.sleep(4)  # HACK:
+        # time.sleep(4)  # HACK:
         if not (N_SDOFs == len(ls_T) == len(ls_materials)):
             raise SDOF_Error(f'SDOF数量、周期数量、材料数量不等！({N_SDOFs}, {len(ls_T)}, {len(ls_materials)})')
         self.N_SDOFs = N_SDOFs

@@ -1,12 +1,12 @@
 from __future__ import annotations
-import multiprocessing.managers
-import multiprocessing.queues
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .Analysis import SDOFmodel
+    from .Analysis import _SDOFmodel
 import time
 import traceback
 import multiprocessing
+import multiprocessing.managers
+import multiprocessing.queues
 from pathlib import Path
 
 import loguru
@@ -16,7 +16,7 @@ import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
-from NRSAcore.Task import Task
+from NRSAcore.Task import _Task
 from NRSAcore.SDOF_solver import *
 from ui.Win import Ui_Win
 from utils.utils import SDOF_Error
@@ -30,11 +30,11 @@ FUNC = {
 
 
 class _Win(QDialog):
-    def __init__(self, task: SDOFmodel, logger: loguru.Logger) -> None:
+    def __init__(self, task: _SDOFmodel, logger: loguru.Logger) -> None:
         """监控窗口
 
         Args:
-            task (SDOFmodel): SDOFmodel类的实例
+            task (_SDOFmodel): _SDOFmodel类的实例
             logger (loguru.Logger): 日志
         """
         super().__init__()
@@ -530,7 +530,7 @@ def _parse_material(model_overview: dict, model_paras: pd.DataFrame, id_: int) -
     for matType, old_paras in old_materials.items():
         paras = []
         for old_para in old_paras:
-            para = Task.identify_para(old_para)
+            para = _Task.identify_para(old_para)
             if para:
                 paras.append(model_paras[model_paras['ID']==id_][para].item())
             else:
