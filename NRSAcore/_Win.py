@@ -57,6 +57,7 @@ class _Win(QDialog):
         self.ductility_tol = task.ductility_tol
         self.auto_quit = task.auto_quit
         self.g = task.g
+        self.N_response_types = task.N_response_types
         self.init_ui()
         self.run()
 
@@ -74,7 +75,10 @@ class _Win(QDialog):
             self.ui.label_5.setText('P-Delta效应：考虑')
         else:
             self.ui.label_5.setText('P-Delta效应：不考虑')
+        model_name = self.model_overview['model_name']
+        self.ui.label_10.setText(f'任务名：{model_name}')
         self.ui.label_3.setText(f'SDOF数量：{self.N_SDOF}')
+        self.ui.label_9.setText(f'总计算数：{self.N_calc}')
         self.ui.label_8.setText(f'SDOF求解器：{FUNC[self.func_type].__name__}')
         self.ui.pushButton_3.clicked.connect(self.pause_resume)
 
@@ -111,7 +115,7 @@ class _Win(QDialog):
     
     def set_finished_SDOF(self, int_):
         """设置显示已完成SDOF的数量"""
-        self.ui.label_7.setText(f'已计算SDOF：{int_}')
+        self.ui.label_7.setText(f'已计算次数：{int_}')
 
     def finish_all(self):
         self.ui.pushButton_2.setEnabled(True)
@@ -144,17 +148,26 @@ class _Worker(QThread):
         self.ductility_tol = win.ductility_tol
         self.auto_quit = win.auto_quit
         self.g = win.g
+        self.N_response_types = win.N_response_types
         self.logger = self.win.logger
         # 新定义的实例属性
         self.reuslt_column = ['id', 'converge', 'collapse', 'maxDisp', 'maxVel',
             'maxAccel', 'Ec', 'Ev', 'maxReaction', 'CD', 'CPD', 'resDisp']
-        self.results = np.zeros((self.N_calc, len(self.reuslt_column)))  # 储存计算结果的DataFrame
+        self.results_L1 = np.zeros((self.N_calc, len(self.reuslt_column)))
+        self.results_L1[:, 0] = np.arange(1, len(self.results_L1) + 1, 1)
         self.model_name = self.model_overview['model_name']
         self.queue = multiprocessing.Manager().Queue()  # 进程通信
         self.stop_event = multiprocessing.Manager().Event()  # 中断事件
         self.pause_event = multiprocessing.Manager().Event()  # 暂停事件
         self.pause_event.set()
         self.lock = multiprocessing.Manager().Lock()  # 进程锁
+
+    # def creat_shared_var(self):
+    #     """创建多进程共享变量"""
+    #     self.results_L1 = multiprocessing.Array('f', np.prod(self.N_calc, len(self.reuslt_column)), lock=False)
+    #     self.results_L1[:, 0] = np.arange(1, len(self.results_L1) + 1, 1)
+    #     self.N_response_types = multiprocessing.Value('H', self.N_response_types, lock=False)
+    #     self.test_var = '----test----'  # HACK:
 
     def kill(self):
         """中断计算"""
@@ -173,7 +186,7 @@ class _Worker(QThread):
             self.run_constant_ductility()
         elif self.analysis_type == 'constant_strength':
             self.run_constant_strength()
-
+ 
     def run_constant_ductility(self):
         """等延性分析"""
         s = '（多进程）' if self.parallel > 1 else ''
@@ -181,8 +194,7 @@ class _Worker(QThread):
         ...  # TODO: 等延性分析
 
     def run_constant_strength(self):
-        """等强度分析"""
-        # TODO: 昨晚写到这里
+        """等强度分析，使用records.pkl的地震动(无缩放)"""
         s = '（多进程）' if self.parallel > 1 else ''
         self.logger.success(f'开始进行：性能需求谱分析{s}')
         ls_paras: list[tuple] = []
@@ -190,19 +202,19 @@ class _Worker(QThread):
         stop_event = self.stop_event
         pause_event = self.pause_event
         lock = self.lock
-        self.model_results = self.output_dir / f'{self.model_name}_results.h5'  # 生成的结果文件
-        suffix = self.model_overview['ground_motions']['suffix']
         batch = self.batch
-        for gm_idx, (gm_name, dt, SF) in self.model_overview['ground_motions']['name_dt_SF'].items():
-            df_paras = self.model_paras[self.model_paras['ground_motion']==int(gm_idx)]
+        SF = 1
+        for gm_idx, (gm, dt) in enumerate(self.records.get_unscaled_records()):
+            gm_name = self.records.get_record_name()[gm_idx]
+            df_paras = self.model_paras[self.model_paras['ground_motion']==int(gm_idx+1)]
             ls_SDOF = df_paras['ID'].to_list()
-            gm = np.loadtxt(_Win.dir_gm / f'{gm_name}{suffix}')
-            args = (queue, stop_event, pause_event, lock, self.model_results,
-                    self.func_type, self.model_overview, self.model_paras, ls_SDOF, batch,
-                    gm, dt, self.fv_duration, SF, self.g, gm_name)
+            args = (self.N_response_types, queue, stop_event, pause_event, lock, self.func_type,
+                    self.model_overview, self.model_paras, ls_SDOF, batch, gm, dt, self.fv_duration,
+                    SF, self.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.parallel) as pool:
             for i in range(self.N_GM):
+                # 一个进程处理一条地震动的所有计算
                 pool.apply_async(_run_constant_strength, ls_paras[i])  # 设置进程池
             self.get_queue(queue)
             pool.close()
@@ -214,21 +226,26 @@ class _Worker(QThread):
         finished_SDOF = 0  # 已计算完成的SDOF
         while True:
             if not queue.empty():
-                flag, *other = queue.get()
+                for key, value in queue.get().items():
+                    flag, contents = key, value
                 if flag == 'a':  # 地震动完成
                     # other: 该条地震动计算的SDOF数量
                     finished_GM += 1
-                    finished_SDOF += other[0]
-                    self.signal_set_progressBar.emit((int(finished_GM/self.N_GM)*100), f'已计算地震动：{finished_GM}')
+                    finished_SDOF += contents
+                    self.signal_set_progressBar.emit((int(finished_GM/self.N_GM*100), f'已计算地震动：{finished_GM}'))
                     self.signal_set_finished_SDOF.emit(finished_SDOF)
+                elif flag == 'b':  # 传递该条地震动得到的结果
+                    # 在地震动完成计算时收到
+                    results_L2, ls_SDOF = contents
+                    self.L2_to_L1(results_L2, ls_SDOF)
                 elif flag == 'h':  # 中断计算
                     # other = '中断计算'
                     self.signal_finish_all.emit()
                     break
                 elif flag == 'i':  # 异常
                     # other: 异常
-                    print(other[1])
-                    raise other[0]
+                    print(contents[1])
+                    raise contents[0]
                 if finished_GM == self.N_GM:
                     # 所有计算完成
                     self.logger.success('计算完成')
@@ -236,7 +253,31 @@ class _Worker(QThread):
                     self.signal_finish_all.emit()
                     break
 
+    def L2_to_L1(self,
+            results_L2: np.ndarray,
+            ls_SDOF: list[int],
+        ):
+        """将SDOF计算结果写入cls.results
 
+        Args:
+            results_L2 (np.ndarray): 某地震动下计算得到的L2结果
+            ls_SDOF (list[int]): 结果对应的id
+        """
+        self.lock.acquire()
+        try:
+            if not len(results_L2) == len(ls_SDOF):
+                # L1的行数与ls_SDOF的长度必须相等，保证结果与id一一对应
+                self.logger.error(f'results_L2的长度({len(results_L2)})与ls_SDOF({len(ls_SDOF)})不一致')
+                raise SDOF_Error('_Win.py, _write_results, Error - 1')
+            for id_ in ls_SDOF:
+                idx = id_ - 1
+                self.results_L1[idx, 1:] = results_L2[idx]  # L2写入L1
+        except Exception as error:
+            self.lock.release()
+            return error
+        else:
+            self.lock.release()
+            return
 
 def _run_constant_strength(*args, **kwargs):
     """SDOF计算函数，每次调用求解一条地震动
@@ -246,7 +287,6 @@ def _run_constant_strength(*args, **kwargs):
         stop_event (multiprocessing.Event): 进程终止事件
         pause_event (multiprocessing.Event): 进程暂停事件
         lock (multiprocessing.Lock): 进程锁
-        model_results (Path): 待写入的计算结果文件
         func_type (int): SDOF求解器类型
         * 1 - 单个SDOF求解
         * 2 - 批量SDOF求解
@@ -258,16 +298,17 @@ def _run_constant_strength(*args, **kwargs):
 
         后续参数见SDOF求解器
     """
+    # results_L1: np.ndarray
+    N_response_types: int
     queue: multiprocessing.Queue
     stop_event: multiprocessing.Event
     pause_event: multiprocessing.Event
     lock: multiprocessing.Lock
-    model_results: Path
     func_type: int
     model_overview: dict
     model_paras: pd.DataFrame
-    ls_SDOF: list[int]
-    batch: int
+    ls_SDOF: list[int]  # 待计算的模型编号
+    batch: int  # 批量计算的数量
     gm: np.ndarray
     dt: float
     fv_duration: float
@@ -275,7 +316,9 @@ def _run_constant_strength(*args, **kwargs):
     g: float
     gm_name: str
     try:
-        queue, stop_event, pause_event, lock, model_results, func_type, model_overview, model_paras,\
+        # results_L1, N_response_types,\
+        N_response_types,\
+        queue, stop_event, pause_event, lock, func_type, model_overview, model_paras,\
         ls_SDOF, batch, gm, dt, fv_duration, SF, g, gm_name = args
         func = FUNC[func_type]
         T_name: str = model_overview['basic_para']['period']
@@ -289,20 +332,20 @@ def _run_constant_strength(*args, **kwargs):
         mat_paras = model_overview['basic_para']['material_paras']
         materials = model_overview['material_format']
         finished_SDOF = 0  # 该地震动下已经计算完成的SDOF的数量
-        # (n: SDOF模型的序号)
+        results_L2 = np.zeros((len(ls_SDOF), N_response_types))  # 用于存储临时计算结果
         if func_type == 1:
-            for n in ls_SDOF:
-                n: int
+            for idx, id_ in enumerate(ls_SDOF):
+                id_: int  # 模型序号
                 if stop_event.is_set():
-                    queue.put(('h', '中断计算'))
+                    queue.put({'h': '中断计算'})
                     return
                 pause_event.wait()
-                line = model_paras[model_paras['ID']==n]
+                line = model_paras[model_paras['ID']==id_]
                 T = line[T_name].item()
                 zeta = line[zeta_name].item()
                 m = line[m_name].item()
                 uy = line[uy_name].item()
-                materials = _parse_material(model_overview, model_paras, n)
+                materials = _parse_material(model_overview, model_paras, id_)
                 if collapseDisp_name:
                     collapseDisp = line[collapseDisp_name].item()
                 else:
@@ -311,23 +354,22 @@ def _run_constant_strength(*args, **kwargs):
                     maxAnaDisp = line[maxAnaDisp_name].item()
                 else:
                     maxAnaDisp = 2e10
-                result = SDOF_solver(T, gm, dt, materials, uy, fv_duration, SF, zeta, m, g,
+                results_L3 = SDOF_solver(T, gm, dt, materials, uy, fv_duration, SF, zeta, m, g,
                             collapseDisp, maxAnaDisp)
-                res = _write_result(model_results, result, gm_name, n, lock)
-                if res:
-                    raise res
+                results_L2[idx] = list(results_L3.values())
                 finished_SDOF += 1
         elif func_type == 2:
             ls_batches = _split_batch(ls_SDOF, batch)
+            line_idx = 0  # 从多少行开始写入results_L2
             for ls_batch in ls_batches:
                 if stop_event.is_set():
-                    queue.put(('h', '中断计算'))
+                    queue.put({'h': '中断计算'})
                     return
                 pause_event.wait()
                 N_SDOFs = len(ls_batch)
                 df = model_paras[model_paras['ID'].isin(ls_batch)]
                 ls_T = df[T_name].to_list()
-                ls_materials = tuple(_parse_material(model_overview, model_paras, n) for n in ls_batch)
+                ls_materials = tuple(_parse_material(model_overview, model_paras, id_) for id_ in ls_batch)
                 ls_uy = df[uy_name].to_list()
                 ls_SF = tuple(SF for _ in ls_batch)
                 ls_zeta = df[zeta_name].to_list()
@@ -340,17 +382,18 @@ def _run_constant_strength(*args, **kwargs):
                     ls_maxAnaDisp = df[maxAnaDisp_name].to_list()
                 else:
                     ls_maxAnaDisp = tuple(2e10 for _ in ls_batch)
-                result = SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
+                results_L3 = SDOF_batched_solver(N_SDOFs, ls_T, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
-                error = _write_result(model_results, result, gm_name, ls_batch, lock)
-                if error:
-                    raise error
+                # 将该batch的结果写入results_L2
+                results_L2[line_idx: line_idx + N_SDOFs] = np.array(list(results_L3.values())).T
+                line_idx += N_SDOFs
                 finished_SDOF += N_SDOFs
         elif func_type == 3:
             ls_batches = _split_batch(ls_SDOF, batch)
+            line_idx = 0  # 从多少行开始写入results_L2
             for ls_batch in ls_batches:
                 if stop_event.is_set():
-                    queue.put(('h', '中断计算'))
+                    queue.put({'h': '中断计算'})
                     return
                 pause_event.wait()
                 N_SDOFs = len(ls_batch)
@@ -358,7 +401,7 @@ def _run_constant_strength(*args, **kwargs):
                 ls_h = df[h_name].to_list()
                 ls_T = df[T_name].to_list()
                 ls_grav = df[P_name].to_list()
-                ls_materials = tuple(_parse_material(model_overview, model_paras, n) for n in ls_batch)
+                ls_materials = tuple(_parse_material(model_overview, model_paras, id_) for id_ in ls_batch)
                 ls_uy = df[uy_name].to_list()
                 ls_SF = tuple(SF for _ in ls_batch)
                 ls_zeta = df[zeta_name].to_list()
@@ -371,31 +414,34 @@ def _run_constant_strength(*args, **kwargs):
                     ls_maxAnaDisp = df[maxAnaDisp_name].to_list()
                 else:
                     ls_maxAnaDisp = tuple(2e10 for _ in ls_batch)
-                result = PDtSDOF_batched_solver(N_SDOFs, ls_h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
+                results_L3 = PDtSDOF_batched_solver(N_SDOFs, ls_h, ls_T, ls_grav, gm, dt, ls_materials, ls_uy, fv_duration, ls_SF,
                     ls_zeta, ls_m, g, ls_collapseDisp, ls_maxAnaDisp)
-                error = _write_result(model_results, result, gm_name, ls_batch, lock)
-                if error:
-                    raise error
+                # 将该batch的结果写入results_L2
+                results_L2[line_idx: line_idx + N_SDOFs] = np.array(list(results_L3.values())).T
+                line_idx += N_SDOFs
                 finished_SDOF += N_SDOFs
-        queue.put(('a', finished_SDOF))
+        # error = _L2_to_L1(results_L1, results_L2, ls_SDOF, lock)
+        # if error is not None:
+        #     raise error
+        queue.put({'b': (results_L2, ls_SDOF)})
+        queue.put({'a': finished_SDOF})
     except Exception as e:
         tb = traceback.format_exc()
-        queue.put(('i', e, tb))
+        queue.put({'i': (e, tb)})
         return
-
 
 def _split_batch(ls_SDOF: list[int], batch: int) -> list[list[int]]:
     """拆分模型"""
+    ls_SDOF_ = ls_SDOF.copy()
     ls_batch = []
     while True:
-        ls_batch.append(ls_SDOF[: batch])
-        del ls_SDOF[: batch]
-        if not ls_SDOF:
+        ls_batch.append(ls_SDOF_[: batch])
+        del ls_SDOF_[: batch]
+        if not ls_SDOF_:
             break
     return ls_batch
 
-
-def _parse_material(model_overview: dict, model_paras: pd.DataFrame, n: int) -> dict:
+def _parse_material(model_overview: dict, model_paras: pd.DataFrame, id_: int) -> dict:
     """解析材料字典"""
     old_materials: dict = model_overview['material_format']
     materials = {}
@@ -404,67 +450,41 @@ def _parse_material(model_overview: dict, model_paras: pd.DataFrame, n: int) -> 
         for old_para in old_paras:
             para = Task.identify_para(old_para)
             if para:
-                paras.append(model_paras[model_paras['ID']==n][para].item())
+                paras.append(model_paras[model_paras['ID']==id_][para].item())
             else:
                 paras.append(old_para)
         materials[matType] = paras
     return materials
-        
 
-def _write_result(
-    model_results: Path | str,
-    results: dict,
-    gm_name: str,
-    n: int | list[int],
-    lock: multiprocessing.Lock
+def _L2_to_L1(
+        results_L1: np.ndarray,
+        results_L2: np.ndarray,
+        ls_SDOF: list[int],
+        lock: multiprocessing.Lock
     ):
-    """将SDOF计算结果写入json文件，每次调用会打开generated_file并进行写入
+    """将SDOF计算结果写入cls.results
 
     Args:
-        model_results (Path | str): 输出文件夹中的json文件
-        results (dict): SDOF求解器返回的结果
-        batched (bool): 是否设置批量计算
+        results_L1 (np.ndarray): 所有分析结果
+        results_L2 (np.ndarray): 某地震动下计算得到的L2结果
+        ls_SDOF (list[int]): 结果对应的id
         lock (multiprocessing.Lock): 进程锁
     """
-    model_results = Path(model_results)
     lock.acquire()
     try:
-        if not model_results.exists():
-            f = h5py.File(model_results, 'w')
-        else:
-            f = h5py.File(model_results, 'a')
-        # 写入响应类型（只会写入一次）
-        if not 'response_type' in f:
-            f.create_dataset('response_type', data=list(results.keys()))
-        # 写入响应数据
-        if isinstance(n, int):
-            # results: dict[str, bool | float]
-            f.create_dataset(str(n), data=list(results.values()))
-        elif isinstance(n, list):
-            # results: dict[str, bool | tuple[bool, ...] | list[float]]
-            for i, response in enumerate(list(zip(*(results.values())))):  
-                # *将响应结果转置
-                f.create_dataset(str(n[i]), data=response)
-        else:
-            raise SDOF_Error(f'不支持的参数 n 类型：{type(n)}')
-        f.close()
+        if not len(results_L2) == len(ls_SDOF):
+            # L1的行数与ls_SDOF的长度必须相等，保证结果与id一一对应
+            lock.release()
+            raise SDOF_Error('_Win.py, _write_results, Error - 1')
+        for id_ in ls_SDOF:
+            idx = id_ - 1
+            results_L1[idx, 1:] = results_L2[idx]  # L2写入L1
     except Exception as error:
         lock.release()
-        f.close()
         return error
     else:
         lock.release()
         return
-
-# TODO:
-def _update_result_file(h5_file: Path | str, results: np.ndarray):
-    """追加保存至.h5文件
-
-    Args:
-        h5_file (Path | str): .h5文件路径
-        results (np.ndarray): 结果文件
-    """
-    pass
 
 # TODO:
 def _load_result_file(h5_file: Path | str):
@@ -479,11 +499,11 @@ def _load_result_file(h5_file: Path | str):
 # TODO:
 """
 计算结果保存策略
-首先定义1300_0000x10的ndarray，第一列改成id，计算过程中不断修改ndarray
-的行，到达保存数据的节点时，将其转换为DadaFrame，然后用下面代码追加写入
-h5文件：
+首先定义1300_0000x10的L1变量，第一列改成id，每条地震动计算后通过queue
+传递L2，在主进程将L2写入L1，当到达保存数据的节点时，将其转换为DadaFrame，
+然后用下面代码追加写入.h5(file)文件：
 >>> with pd.HDFStore(hdf5_file, 'a') as store: 
->>>     df = pd.DataFrame(arr, columns=['id']+['other_responses']*9)
+>>>     df = pd.DataFrame(arr, columns=['id']+['other_responses']*N_response_types)
 >>>     df['id'] = df['id'].astype(int)
 >>>     store.append('results', df, index=False, append=False,
                      complib='blosc:zstd', complevel=2)   

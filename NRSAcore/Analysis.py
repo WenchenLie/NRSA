@@ -18,6 +18,7 @@ from utils import utils
 
 class SDOFmodel:
     g = 9800
+    N_response_types = 11  # SDOF响应类型的数量
 
     def __init__(self,
             records_file: Path | str, 
@@ -38,7 +39,7 @@ class SDOFmodel:
         utils.check_file_exists(overview_file)
         utils.check_file_exists(SDOFmodel_file)
         utils.creat_folder(output_dir, 'overwrite')
-        self.output_dir = output_dir
+        self.output_dir = Path(output_dir)
         self._read_files(records_file, overview_file, SDOFmodel_file)
         self._construct_QApp()
         self._get_task_info()
