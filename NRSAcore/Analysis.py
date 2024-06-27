@@ -10,11 +10,11 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from NRSAcore._Win import _Win
-from utils.utils import SDOF_Error, LOGGER
+from utils.utils import SDOFError, LOGGER
 from utils import utils
 
 
-class _SDOFmodel:
+class SDOFmodel:
     g = 9800
     N_response_types = 11  # SDOF响应类型的数量
 
@@ -100,15 +100,15 @@ class _SDOFmodel:
             save_interval (float, optional): 保存间隔(s)，若不指定则不定时保存
         """
         if analysis_type not in ['constant_ductility', 'constant_strength']:
-            raise SDOF_Error(f'未知分析类型：{analysis_type}')
+            raise SDOFError(f'未知分析类型：{analysis_type}')
         if not isinstance(batch, int):
-            raise SDOF_Error('参数 batch 应为整数')
+            raise SDOFError('参数 batch 应为整数')
         if batch < 1:
-            raise SDOF_Error('参数 batch 应大于等于1')
+            raise SDOFError('参数 batch 应大于等于1')
         if not isinstance(parallel, int):
-            raise SDOF_Error('参数 parallel 应为整数')
+            raise SDOFError('参数 parallel 应为整数')
         if parallel < 1:
-            raise SDOF_Error('参数 parallel 应大于等于1')
+            raise SDOFError('参数 parallel 应大于等于1')
         if batch == 1 and not PDelta:
             func_type = 1
         elif batch > 1 and not PDelta:
@@ -116,7 +116,7 @@ class _SDOFmodel:
         elif PDelta:
             func_type = 3
         else:
-            raise SDOF_Error('Error - 1')
+            raise SDOFError('Error - 1')
         if solver:
             if solver == 'SDOF_solver':
                 func_type = 1
@@ -129,7 +129,7 @@ class _SDOFmodel:
                 func_type = 3
                 PDelta = True
             else:
-                raise SDOF_Error(f'未知求解器类型：{solver}')
+                raise SDOFError(f'未知求解器类型：{solver}')
         from NRSAcore._Win import FUNC
         solver_name = FUNC[func_type].__name__
         self.logger.info(f'SDOF求解器：{solver_name}')
@@ -202,7 +202,7 @@ class _SDOFmodel:
         code1 = instance.model_overview['verification_code']
         code2 = analysis_options['verification_code']
         if not code1 == code2:
-            raise SDOF_Error(f'{overview_file.name}与{pkl_file.name}的校验码不符')
+            raise SDOFError(f'{overview_file.name}与{pkl_file.name}的校验码不符')
         instance.set_analytical_options(
             analysis_options['analysis_type'],
             analysis_options['fv_duration'],
@@ -224,10 +224,10 @@ class _SDOFmodel:
 if __name__ == "__main__":
 
     sys.path.append(str(Path(__file__).parent.parent.absolute()))
-    model = _SDOFmodel(
+    model = SDOFmodel(
         r'G:\NRSA_working\3046records.pkl',
         r'G:\NRSA_working\LCF_overview.json',
-        r'G:\NRSA_working\LCF_SDOFmodels.csv',
+        r'G:\NRSA_working\LCFSDOFmodels.csv',
         r'G:\NRSA_working'
     )
     model.set_analytical_options(

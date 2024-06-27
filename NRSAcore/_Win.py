@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .Analysis import _SDOFmodel
+    from .Analysis import SDOFmodel
 import time
 import traceback
 import multiprocessing
@@ -16,10 +16,10 @@ import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
-from NRSAcore.Task import _Task
+from NRSAcore.Task import Task
 from NRSAcore.SDOF_solver import *
 from ui.Win import Ui_Win
-from utils.utils import SDOF_Error
+from utils.utils import SDOFError
 
 
 FUNC = {
@@ -30,11 +30,11 @@ FUNC = {
 
 
 class _Win(QDialog):
-    def __init__(self, task: _SDOFmodel, logger: loguru.Logger) -> None:
+    def __init__(self, task: SDOFmodel, logger: loguru.Logger) -> None:
         """监控窗口
 
         Args:
-            task (_SDOFmodel): _SDOFmodel类的实例
+            task (SDOFmodel): SDOFmodel类的实例
             logger (loguru.Logger): 日志
         """
         super().__init__()
@@ -273,8 +273,8 @@ class _Worker(QThread):
                     # 所有计算完成
                     self.logger.success('所有计算完成')
                     self.is_running = False
-                    self.signal_finish_all.emit()
                     error = self._check_save(True)
+                    self.signal_finish_all.emit()
                     if error:
                         raise error
                     break
@@ -299,7 +299,7 @@ class _Worker(QThread):
             if not len(results_L2) == len(ls_SDOF):
                 # L1的行数与ls_SDOF的长度必须相等，保证结果与id一一对应
                 self.logger.error(f'results_L2的长度({len(results_L2)})与ls_SDOF({len(ls_SDOF)})不一致')
-                raise SDOF_Error('_Win.py, _write_results, Error - 1')
+                raise SDOFError('_Win.py, _write_results, Error - 1')
             for id_ in ls_SDOF:
                 idx = id_ - 1
                 self.results_L1[idx, 1:] = results_L2[idx]  # L2写入L1
@@ -530,7 +530,7 @@ def _parse_material(model_overview: dict, model_paras: pd.DataFrame, id_: int) -
     for matType, old_paras in old_materials.items():
         paras = []
         for old_para in old_paras:
-            para = _Task.identify_para(old_para)
+            para = Task.identify_para(old_para)
             if para:
                 paras.append(model_paras[model_paras['ID']==id_][para].item())
             else:

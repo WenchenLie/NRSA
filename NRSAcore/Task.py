@@ -12,11 +12,11 @@ import dill as pickle
 from SeismicUtils.Records import Records
 
 from NRSAcore.Records import Records
-from utils.utils import Task_Error, LOGGER
+from utils.utils import TaskError, LOGGER
 from utils import utils
 
 
-class _Task:
+class Task:
     def __init__(self, task_name: str, working_directory: str | Path):
         working_directory = Path(working_directory)
         self.task_name = task_name
@@ -77,9 +77,9 @@ class _Task:
             value (int | float): 参数值
         """
         if not isinstance(name, str):
-            raise Task_Error(f'参数名的类型只能为str（{type(name)}）')
+            raise TaskError(f'参数名的类型只能为str（{type(name)}）')
         if not isinstance(value, (int, float)):
-            raise Task_Error(f'常数型参数值只能为int, float类型之一（{type(value)}）')
+            raise TaskError(f'常数型参数值只能为int, float类型之一（{type(value)}）')
         if name in self.paras:
             self.logger.warning(f'参数 {name} 已存在，将覆盖')
         self.paras[name] = (value, 1)
@@ -94,9 +94,9 @@ class _Task:
             value (list | np.ndarray): 参数值
         """
         if not isinstance(name, str):
-            raise Task_Error(f'参数名的类型只能为str（{type(name)}）')
+            raise TaskError(f'参数名的类型只能为str（{type(name)}）')
         if not isinstance(value, (list, np.ndarray)):
-            raise Task_Error(f'独立参数值只能为list | np.ndarray类型之一（{type(value)}）')
+            raise TaskError(f'独立参数值只能为list | np.ndarray类型之一（{type(value)}）')
         if name in self.paras:
             self.logger.warning(f'参数 {name} 已存在，将覆盖')
         self.paras[name] = (value, 2)
@@ -112,12 +112,12 @@ class _Task:
             independent_paras (str): 该参数所从属的独立参数名，可为多个，不可为空
         """
         if not isinstance(name, str):
-            raise Task_Error(f'参数名的类型只能为str（{type(name)}）')
+            raise TaskError(f'参数名的类型只能为str（{type(name)}）')
         if len(independent_paras) == 0:
-            raise Task_Error(f'参数 independent_paras 未指定')
+            raise TaskError(f'参数 independent_paras 未指定')
         for item in independent_paras:
             if not isinstance(item, str):
-                raise Task_Error(f'参数 independent_paras 中所有元素的类型都只能为str（{type(item)}）')
+                raise TaskError(f'参数 independent_paras 中所有元素的类型都只能为str（{type(item)}）')
         if name in self.paras:
             self.logger.warning(f'参数 {name} 已存在，将覆盖')
         self.paras[name] = (None, 3)
@@ -150,9 +150,9 @@ class _Task:
         """
         for item in [period, mass, damping, gravity, height, yield_disp]:
             if (item is not None) and (item not in self.paras):
-                raise Task_Error(f'参数 {item} 未定义！')
+                raise TaskError(f'参数 {item} 未定义！')
             if (item is not None) and (not isinstance(item, str)):
-                raise Task_Error(f'参数 {item} 应为str类型（{type(item)}）')
+                raise TaskError(f'参数 {item} 应为str类型（{type(item)}）')
         self.period = period
         self.mass = mass
         self.damping = damping
@@ -186,7 +186,7 @@ class _Task:
                 if isinstance(para, str) and res:
                     identified_paras.add(res)
                     if res not in self.paras:
-                        raise Task_Error(f'参数 {res} 未定义')
+                        raise TaskError(f'参数 {res} 未定义')
         self.logger.success(f'已识别参数: {identified_paras}')
         self.materials = materials
         self.material_paras = list(identified_paras)  # 定义SDOF材料需要用到的参数
@@ -251,7 +251,7 @@ class _Task:
         * {model_name}.json: 记录了模型概括、参数取值概括、地震动步长等信息
         * {model_name}.csv: 记录每个SDOF模型所包含的所有参数的详细取值
         """
-        self._set_task_info()  # 写入task_info
+        self._setTask_info()  # 写入task_info
         self.logger.info(f'正在写入：{self.task_name}.json')
         with open(self.wkd / f'{self.task_name}.json', 'w') as f:
             json.dump(self.task_info, f, indent=4)
@@ -260,7 +260,7 @@ class _Task:
         self.logger.success(f'共生成 {self.N_SDOF} 个SDOF模型')
         self.logger.success(f'共需进行 {self.N_calc} 次计算')
 
-    def _set_task_info(self):
+    def _setTask_info(self):
         """定义self.task_info"""
         for name, (value, type_) in self.paras.items():
             if isinstance(value, np.ndarray):
@@ -274,7 +274,7 @@ class _Task:
             elif type_ == 3:
                 self.task_info['dependent_para'].append(name)  # 从属参数
             else:
-                raise Task_Error(f'未知type: {type_}')
+                raise TaskError(f'未知type: {type_}')
         for matType, paras in self.materials.items():
             self.task_info['material_format'][matType] = list(paras)  # 材料格式
         # 基本模型参数
@@ -320,7 +320,7 @@ class _Task:
         for name, (func, *idpd_names) in self.dependent_paras.items():
             for idpd_name in idpd_names:
                 if not idpd_name in values.columns:
-                    raise Task_Error(f'未找到从属参数 {name} 所依赖的参数 {idpd_name} 的值')
+                    raise TaskError(f'未找到从属参数 {name} 所依赖的参数 {idpd_name} 的值')
             idpd_values = [values[idpd_name] for idpd_name in idpd_names]  # 独立参数的值 list[Series]
             # 计算从属参数的值
             dpd_values = func(*idpd_values)
