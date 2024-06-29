@@ -1,14 +1,13 @@
 from math import pi
 from pathlib import Path
 import numpy as np
-from NRSAcore.Task import Task
-from NRSAcore.Analysis import SDOFmodel
+import NRSAcore
 
 
 def generate_task():
 
     g = 9800
-    task = Task('LCF', r'G:\LCFwkd')
+    task = NRSAcore.Task('LCF', r'G:\LCFwkd')
     
     # 1 定义模型参数
     # (1) 常数型参数
@@ -64,7 +63,7 @@ def generate_task():
     task.set_materials(material)
 
     # 4 定义地震动
-    task.records_from_pickle(r'C:\Users\admin\Desktop\records.pkl')
+    task.records_from_pickle(r'G:\NRSA_working\3046records.records')
     # files = []
     # for file in Path(r'F:\重要数据\小波库\7Records').iterdir():
     # for file in Path(r'F:\重要数据\小波库\3046Records').iterdir():
@@ -82,24 +81,26 @@ def generate_task():
 
 def analysis():
 
-    model = SDOFmodel(json_file=Path('temp')/'LCF.json')
+    model = NRSAcore.SDOFmodel(
+        r'G:\NRSA_working\3046records.records',
+        r'G:\LCFwkd\LCF.json',
+        r'G:\LCFwkd\LCF.csv',
+        r'G:\LCFwkd'
+    )
     model.set_analytical_options(
-        Path('Output'),
         'constant_strength',
         PDelta=False,
         batch=20,
         auto_quit=False,
-        parallel=20
+        parallel=20,
+        save_interval=1200
     )
     model.run()
 
 
 if __name__ == "__main__":
     
-    # Task.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    # SDOFmodel.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    # _Win.dir_gm = Path(r'F:\重要数据\小波库\3046Records')
-    generate_task()
-    # analysis()
-
+    # generate_task()
+    analysis()
+    pass
 

@@ -215,12 +215,13 @@ class _Worker(QThread):
         lock = self.lock
         batch = self.batch
         SF = 1
+        self.logger.info('正在分配计算任务')
         for gm_idx, (gm, dt) in enumerate(self.records.get_unscaled_records()):
             gm_name = self.records.get_record_name()[gm_idx]
             df_paras = self.model_paras[self.model_paras['ground_motion']==int(gm_idx+1)]
             ls_SDOF = df_paras['ID'].to_list()
             args = (self.N_response_types, queue, stop_event, pause_event,
-                    lock, self.func_type, self.model_overview, self.model_paras,
+                    lock, self.func_type, self.model_overview, df_paras,
                     ls_SDOF, batch, gm, dt, self.fv_duration, SF, self.g, gm_name)
             ls_paras.append(args)
         with multiprocessing.Pool(self.parallel) as pool:
@@ -229,6 +230,7 @@ class _Worker(QThread):
                 if self.records.get_record_name()[i] in self.finished_gm:
                     continue  # 重启动时如果该地震动已完成计算，则跳过
                 pool.apply_async(_run_constant_strength, ls_paras[i])  # 设置进程池
+            self.logger.info('开始计算，请注意内存占用')
             self.get_queue(queue)
             pool.close()
             pool.join()
@@ -532,7 +534,7 @@ def _parse_material(model_overview: dict, model_paras: pd.DataFrame, id_: int) -
         for old_para in old_paras:
             para = Task.identify_para(old_para)
             if para:
-                paras.append(model_paras[model_paras['ID']==id_][para].item())
+                paras.append(model_paras[model_paras['ID']==id_][para].item())  # FIXME: 运行到这行时内存不够报错
             else:
                 paras.append(old_para)
         materials[matType] = paras
