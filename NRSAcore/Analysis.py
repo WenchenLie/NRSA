@@ -150,6 +150,10 @@ class SDOFmodel:
 
     def run(self):
         """开始运行分析"""
+        try:
+            import tables
+        except ImportError:
+            raise ImportError('请先使用pip或conda安装tables库')  # 否则无法利用pandas读写.h5文件
         self._get_analysis_options()
         if not self.is_restart:
             model_name = self.model_overview['model_name']

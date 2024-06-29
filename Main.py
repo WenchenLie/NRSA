@@ -101,6 +101,14 @@ def analysis():
 if __name__ == "__main__":
     
     # generate_task()
-    analysis()
-    pass
+    # analysis()
+    model = NRSAcore.SDOFmodel.restart(
+        r'G:\NRSA_working\3046records.records',
+        r'G:\LCFwkd\LCF.json',
+        r'G:\LCFwkd\LCF.csv',
+        r'G:\LCFwkd',
+        r'G:\LCFwkd\LCF.instance'
+    )
+    model.run()
+    # pass
 

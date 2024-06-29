@@ -319,11 +319,13 @@ class _Worker(QThread):
             always_save (bool, optional): 为True时每次调用都会保存文件
 
         Returns:
-            _type_: _description_
+            Exception | None: 返回异常或None
         """
         self.pause_event.wait()
         if (time.time() - self.save_start > self.save_interval) or always_save:
             self.lock.acquire()
+            self.win.ui.pushButton_2.setText('正在保存...')
+            self.win.ui.pushButton_2.setEnabled(False)
             self.save_start = time.time()
             df_code = pd.DataFrame([self.model_overview['verification_code']])
             df_finished_id = pd.DataFrame(self.finished_id)
@@ -357,6 +359,8 @@ class _Worker(QThread):
                     store.append('finished_id', df_finished_id, index=False, append=False, complib='blosc:zstd', complevel=2)
                     store.append('finished_gm', df_finished_gm, index=False, append=False, complib='blosc:zstd', complevel=2)
                 self.logger.info(f'已保存结果至 {file.name}')
+                self.win.ui.pushButton_2.setText('保存')
+                self.win.ui.pushButton_2.setEnabled(True)
             except Exception as error:
                 self.lock.release()
                 if type(error).__name__ == 'HDF5ExtError':
