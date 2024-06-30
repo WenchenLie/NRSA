@@ -390,6 +390,9 @@
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_4">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="minimumSize">
         <size>
          <width>150</width>
@@ -403,6 +406,9 @@
      </item>
      <item>
       <widget class="QPushButton" name="pushButton">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="minimumSize">
         <size>
          <width>150</width>
@@ -416,6 +422,9 @@
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_3">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="minimumSize">
         <size>
          <width>150</width>

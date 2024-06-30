@@ -231,9 +231,16 @@ class _Worker(QThread):
                     continue  # 重启动时如果该地震动已完成计算，则跳过
                 pool.apply_async(_run_constant_strength, ls_paras[i])  # 设置进程池
             self.logger.info('开始计算，请注意内存占用')
+            self._set_button_enabled()
             self.get_queue(queue)
             pool.close()
             pool.join()
+
+    def _set_button_enabled(self):
+        """将`保存`, `中断`, `暂停`三个按钮激活"""
+        self.win.ui.pushButton_4.setEnabled(True)
+        self.win.ui.pushButton.setEnabled(True)
+        self.win.ui.pushButton_3.setEnabled(True)
 
     def get_queue(self, queue: multiprocessing.Queue):
         """进程通讯"""
@@ -324,8 +331,8 @@ class _Worker(QThread):
         self.pause_event.wait()
         if (time.time() - self.save_start > self.save_interval) or always_save:
             self.lock.acquire()
-            self.win.ui.pushButton_2.setText('正在保存...')
-            self.win.ui.pushButton_2.setEnabled(False)
+            self.win.ui.pushButton_4.setText('正在保存...')
+            self.win.ui.pushButton_4.setEnabled(False)
             self.save_start = time.time()
             df_code = pd.DataFrame([self.model_overview['verification_code']])
             df_finished_id = pd.DataFrame(self.finished_id)
@@ -359,8 +366,8 @@ class _Worker(QThread):
                     store.append('finished_id', df_finished_id, index=False, append=False, complib='blosc:zstd', complevel=2)
                     store.append('finished_gm', df_finished_gm, index=False, append=False, complib='blosc:zstd', complevel=2)
                 self.logger.info(f'已保存结果至 {file.name}')
-                self.win.ui.pushButton_2.setText('保存')
-                self.win.ui.pushButton_2.setEnabled(True)
+                self.win.ui.pushButton_4.setText('保存')
+                self.win.ui.pushButton_4.setEnabled(True)
             except Exception as error:
                 self.lock.release()
                 if type(error).__name__ == 'HDF5ExtError':

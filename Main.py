@@ -109,6 +109,7 @@ if __name__ == "__main__":
         r'G:\LCFwkd',
         r'G:\LCFwkd\LCF.instance'
     )
+    model.parallel = 20
     model.run()
     # pass
 
