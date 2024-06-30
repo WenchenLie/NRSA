@@ -58,7 +58,7 @@ class SDOFmodel:
             self.model_overview: dict = json.load(f)
         # 读取模型参数
         self.model_paras = pd.read_csv(SDOFmodel_file)
-
+    
     def _construct_QApp(self):
         app = QApplication.instance()
         if not app:
@@ -147,7 +147,7 @@ class SDOFmodel:
             self.logger.info(f'结果将每隔 {save_interval}s 保存一次')
         self.solver = solver
         self.save_interval = save_interval
-
+    
     def run(self):
         """开始运行分析"""
         try:
@@ -179,7 +179,7 @@ class SDOFmodel:
         self.analysis_options['finished_id'] = []
         self.analysis_options['finished_gm'] = []
         self.analysis_options['verification_code'] = self.model_overview['verification_code']
-        
+    
     @classmethod
     def restart(cls,
             records_file: Path | str, 
