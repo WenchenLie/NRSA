@@ -1,5 +1,8 @@
+import time
 from math import pi, sqrt
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from src.analysis import ConstantDuctilityAnalysis
 
 
@@ -55,25 +58,53 @@ def material_definition(
 
 
 if __name__ == "__main__":
+    time_start = time.time()
     T = np.arange(0.02, 6, 0.02)
-    material_paras: dict[str, float] = {
-        'alpha': 0.02
-    }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
-    # 需Python 3.7+从而保证字典的键值对顺序不变
-    model = ConstantDuctilityAnalysis('Test')
-    model.set_working_directory('H:/NRSA_results')
-    model.analysis_settings(T, material_definition, material_paras,
-        damping=0.05,
-        target_ductility=3,
-        R_init=1,
-        R_incr=5,
-        tol_ductility=0.01,
-        tol_R=0.001,
-        max_iter=100,
-        thetaD=0,
-        mass=1
-    )
-    model.select_ground_motions('./GMs', [f'th{i}' for i in range(1, 45)], suffix='.th')
-    model.running_settings(parallel=20, auto_quit=False, hidden_prints=True, show_monitor=True)
-    model.run()
-
+    for miu in [2, 3, 4]:
+        print(f'Running with miu={miu}')
+        material_paras: dict[str, float] = {
+            'alpha': 0.02
+        }  # Required parameters for material definition, can be customized by user.
+        # The length of the dictionary should be the same as the number of arguments in the `material_definition` function.
+        # Requires Python 3.7+ to preserve the order of dictionary items.
+        model = ConstantDuctilityAnalysis(f'Test_{miu}', cls_cache=True)
+        model.set_working_directory(f'./CDA_results/{miu}', folder_exists='delete')
+        model.analysis_settings(T, material_definition, material_paras,
+            damping=0.05,  # Damping ratio
+            target_ductility=miu,  # Target ductility
+            R_init=1,  # Initial strength reduction factor (R)
+            R_incr=5,  # Incremental value of R for each iteration
+            tol_ductility=0.01,  # Tolerance for target ductility
+            tol_R=0.001,  # Tolerance between adjacent R values
+            max_iter=100,  # Maximum number of iterations
+            thetaD=0  # P-Delta coefficient
+        )
+        model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
+        model.running_settings(parallel=1, auto_quit=True, hidden_prints=True, show_monitor=True, solver='ops')
+        model.run()
+        break
+    time_end = time.time()
+    print(f'Elapsed time: {time_end - time_start:.2f}')
+    
+    # Compare with SeismoSignal results
+    g = 9800
+    plt.figure(figsize=(12, 6))
+    for i, gm in enumerate(['Northridge', 'Kobe']):
+        plt.subplot(2, 1, i + 1)
+        for j, miu in enumerate([2, 3, 4]):
+            res = pd.read_csv(f'./CDA_results/{miu}/results/{gm}.csv')
+            T = res['T']
+            a = res['maxAccel'] / g
+            res_ssm = np.loadtxt(f'./data/SeismiSignal_results/{gm}.txt', skiprows=1)
+            T_ssm = res_ssm[:, 0]
+            a_ssm = res_ssm[:, 2 + j]
+            plt.plot(T, a, label=f'NRSA (miu={miu})', c='black')
+            plt.plot(T_ssm, a_ssm, label=f'SeismoSignal (miu={miu})', c='red', ls='--')
+        plt.xlabel('Period (s)')
+        plt.ylabel('Peak Acceleration (g)')
+        plt.xlim(0, 6)
+        plt.ylim(0)
+        plt.title(f'Ground Motion: {gm}')
+        plt.legend()
+    plt.tight_layout()
+    plt.show()

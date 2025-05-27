@@ -10,16 +10,11 @@ from scipy.interpolate import interp1d
 
 import multiprocessing
 from .utils import SDOFHelper, SDOFError
-from .SDOF_solvers import SDOF_solver
+from .ops_solver import ops_solver
+from packages.newmark import newmark_solver
 
 
-SOLVER_TYPES = Literal['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
-SOLVERS: dict[SOLVER_TYPES, Callable] = {
-    'SDOF_solver': SDOF_solver,
-    # 'SDOF_batched_solver': SDOF_batched_solver,
-    # 'PDtSDOF_batched_solver': PDtSDOF_batched_solver,
-}
-
+SOLVER_TYPES = Literal['ops', 'newmark']
 
 def constant_strength_analysis(*args, **kwargs):
     queue: multiprocessing.Queue = args[-4]
@@ -80,78 +75,73 @@ def _constant_strength_analysis(
     periods: list[float] = list(periods)
     num_period = len(periods)
     num_ana = 0  # 计算该地震动所进行的总SDOF分析次数
-    SDOF_solver = SOLVERS[solver]
     results = pd.DataFrame(None, columns=['T', 'E', 'Fy', 'uy', 'Sa', 'R', 'miu', 'maxDisp', 'maxVel', 'maxAccel', 'Ec', 'Ev', 'maxReaction', 'CD', 'CPD','resDisp', 'solving_converge'])
-    if solver == 'SDOF_solver':
-        start_time = time.time()
-        for idx, Ti in enumerate(periods):
-            solving_converge = 1  # 求解是否收敛，如果有不收敛则变为False
-            if stop_event.is_set():
-                queue.put({'e': '中断计算'})
-                return
-            pause_event.wait()
-            Sa = get_Sa(Ti) # 弹性谱加速度
-            paras = material_paras.values()
-            ops_paras, Fy, E = material_function(Ti, mass, Sa, *paras)
-            uy = Fy / E
-            if thetaD == 0:
-                P = None
+    start_time = time.time()
+    for idx, Ti in enumerate(periods):
+        solving_converge = 1  # 求解是否收敛，如果有不收敛则变为False
+        if stop_event.is_set():
+            queue.put({'e': '中断计算'})
+            return
+        pause_event.wait()
+        Sa = get_Sa(Ti) # 弹性谱加速度
+        paras = material_paras.values()
+        ops_paras, Fy, E = material_function(Ti, mass, Sa, *paras)
+        uy = Fy / E
+        if thetaD == 0:
+            P = 0
+        else:
+            P = thetaD * E * height
+        solver_paras = (Ti, th, dt, ops_paras, uy, fv_duration, scaling_factor, P, height, damping, mass)
+        try:
+            if solver == 'ops':
+                res: dict = ops_solver(*solver_paras)
+            elif solver == 'newmark':
+                res: dict = newmark_solver(*solver_paras, display_info=False)
             else:
-                P = thetaD * E * height
-            solver_paras = (Ti, th, dt, ops_paras, uy, fv_duration, scaling_factor, P, height, damping, mass)
-            try:
-                res: dict = SDOF_solver(*solver_paras)  # 分析求解
-            except:
-                raise SDOFError('OpenSees solver error!')
-            num_ana += 1
-            is_converged: bool = res['converge']  # 计算是否收敛
-            if not is_converged:
-                solving_converge = 0
-                queue.put({'b': (GM_name, Ti, solver_paras[3:])})
-                print(f'Warning: Unconverged analysis! ')
-                print(f'Ground motion: {GM_name}, Period: {Ti}, dt: {dt}, solver_paras:', *solver_paras[3:])
-                unconverged_res = {
-                    'period': Ti,
-                    'ground motion': GM_name,
-                    'dt': dt,
-                    'ops_paras': ops_paras,
-                    'uy': uy,
-                    'fv_duration': fv_duration,
-                    'scaling_factor': scaling_factor,
-                    'P': P,
-                    'height': height,
-                    'damping': damping,
-                    'mass': mass,
-                    'E': E,
-                    'Fy': Fy
-                }
-                current_date = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
-                lock.acquire()
-                if not Path(wkdir / f'warnings').exists():
-                    os.makedirs(wkdir / f'warnings')
-                json.dump(unconverged_res, open(wkdir / f'warnings/c.json', 'w', encoding='utf8'), ensure_ascii=False, indent=4)
-                lock.release()
-            row = len(results)
-            maxDisp = res['maxDisp']
-            results.loc[row] = res
-            results.loc[row, 'T'] = Ti
-            results.loc[row, 'E'] = E
-            results.loc[row, 'Fy'] = Fy
-            results.loc[row, 'uy'] = Fy / E
-            results.loc[row, 'Sa'] = Sa
-            results.loc[row, 'R'] = mass * Sa * 9800 / Fy
-            results.loc[row, 'miu'] = maxDisp / uy
-            results.loc[row, 'solving_converge'] = solving_converge
-        end_time = time.time()
-        queue.put({'a': (GM_name, num_ana, num_period, None, solving_converge, start_time, end_time, None)})
-    elif solver == 'PDtSDOF_solver':
-        ...
-    elif solver == 'SDOF_batched_solver':
-        ...
-    elif solver == 'PDtSDOF_batched_solver':
-        ...
-    else:
-        ...
+                raise SDOFError(f'Wrong solver name: {solver}')
+        except:
+            raise SDOFError('Solver error!')
+        num_ana += 1
+        is_converged: bool = res['converge']  # 计算是否收敛
+        if not is_converged:
+            solving_converge = 0
+            queue.put({'b': (GM_name, Ti, solver_paras[3:])})
+            print(f'Warning: Unconverged analysis! ')
+            print(f'Ground motion: {GM_name}, Period: {Ti}, dt: {dt}, solver_paras:', *solver_paras[3:])
+            unconverged_res = {
+                'period': Ti,
+                'ground motion': GM_name,
+                'dt': dt,
+                'ops_paras': ops_paras,
+                'uy': uy,
+                'fv_duration': fv_duration,
+                'scaling_factor': scaling_factor,
+                'P': P,
+                'height': height,
+                'damping': damping,
+                'mass': mass,
+                'E': E,
+                'Fy': Fy
+            }
+            current_date = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+            lock.acquire()
+            if not Path(wkdir / f'warnings').exists():
+                os.makedirs(wkdir / f'warnings')
+            json.dump(unconverged_res, open(wkdir / f'warnings/c.json', 'w', encoding='utf8'), ensure_ascii=False, indent=4)
+            lock.release()
+        row = len(results)
+        maxDisp = res['maxDisp']
+        results.loc[row] = res
+        results.loc[row, 'T'] = Ti
+        results.loc[row, 'E'] = E
+        results.loc[row, 'Fy'] = Fy
+        results.loc[row, 'uy'] = Fy / E
+        results.loc[row, 'Sa'] = Sa
+        results.loc[row, 'R'] = mass * Sa * 9800 / Fy
+        results.loc[row, 'miu'] = maxDisp / uy
+        results.loc[row, 'solving_converge'] = solving_converge
+    end_time = time.time()
+    queue.put({'a': (GM_name, num_ana, num_period, None, solving_converge, start_time, end_time, None)})
     lock.acquire()
     results.to_csv(wkdir / f'results/{GM_name}.csv', index=False)
     lock.release()

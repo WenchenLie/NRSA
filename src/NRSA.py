@@ -23,7 +23,6 @@ logger.add(
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
     level="DEBUG"
 )
-SOLVER_TYPES = Literal['auto', 'SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
 SKIP = False
 ANA_TYPE_NAME = {'CDA': 'Constant ductility analysis', 'CSA': 'Constant strength analysis'}
 
@@ -31,18 +30,23 @@ class NRSA:
     cwd = Path().cwd()
     solvers = ['auto', 'SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
     T = np.arange(0.01, 6, 0.01)
+    has_GM_data = False
+    unscaled_RSA_spc: dict[float, np.ndarray] = {}
 
-    def __init__(self, job_name: str, analysis_type: Literal['CDA', 'CSA']):
+    def __init__(self, job_name: str, cls_cache: bool=False, *, analysis_type: Literal['CDA', 'CSA']=None):
         """非线性反应谱分析
 
         Args:
             job_name (str): 分析工况名
+            cls_cache (bool, optional): 是否将地震动缓存至类层面，下次实例化时将自
+              动读取缓存，用于循环实例化的分析，默认为False
             analysis_type (Literal['CDA', 'CSA']): CDA - Constant ductility analysis, CSA - Constant strength analysis
         """
         logger.success(f'=============== {ANA_TYPE_NAME[analysis_type]} ===============')
         self.start_time = time.time()
         self.job_name = job_name
         self.analysis_type = analysis_type
+        self.cls_cache = cls_cache
         self._init_variables()
         self._init_QApp()
         if not Path('logs').exists():
@@ -71,24 +75,24 @@ class NRSA:
         self.mass = 1
         self.height = 1
         self.fv_duration: float = 0.0
-        self.suffix: str = None
-        self.GM_names: list[str] = None
-        self.GM_folder: Path = None
-        self.GM_N: int = None
-        self.GM_global_sf: float = 1
-        self.GM_indiv_sf: list[float] = []
+        self.suffix: str
+        self.GM_names: list[str]
+        self.GM_folder: Path
+        self.GM_N: int
+        self.GM_global_sf: float
+        self.GM_indiv_sf: list[float]
         self.scaling_finished = False
-        self.GM_dts: list = []
-        self.GM_NPTS: list[int] = []
-        self.GM_durations: list[float] = []  # 不包括自由振动持续时间
-        self.unscaled_RSA = None  # 5%阻尼，无缩放反应谱
-        self.unscaled_RSV = None
-        self.unscaled_RSD = None
+        self.GM_dts: list
+        self.GM_NPTS: list[int]
+        self.GM_durations: list[float]  # 不包括自由振动持续时间
+        self.unscaled_RSA_5pct: np.ndarray  # 5%阻尼，无缩放反应谱
+        self.unscaled_RSV_5pct: np.ndarray
+        self.unscaled_RSD_5pct: np.ndarray
         self.parallel = 1
         self.auto_quit = False
         self.damping_equal_5pct = False
-        self.unscaled_spectra_folder_5pct = None  # 5%阻尼比反应谱路径
-        self.unscaled_spectra_folder_spc = None  # 指定阻尼比反应谱路径
+        self.unscaled_spectra_folder_5pct: Path  # 5%阻尼比反应谱路径
+        self.unscaled_spectra_folder_spc: Path  # 指定阻尼比反应谱路径
 
     def set_working_directory(self, wkdir: str | Path, folder_exists: Literal['ask', 'overwrite', 'delete']='ask'):
         """设置工作路径
@@ -106,7 +110,87 @@ class NRSA:
             return
         if not Path(self.wkdir / 'results').exists():
             os.makedirs(self.wkdir / 'results')
-        logger.success(f'Working directory has been set: {self.wkdir}')
+        logger.success(f'Working directory has been set: {self.wkdir.as_posix()}')
+
+    def select_ground_motions(self,
+            GM_folder: str | Path,
+            GMs: list[str],
+            suffix: str='.txt',
+            th_scaling: float=1.0,
+        ):
+        """选择地震动加速度时程文件，所有地震地震动应放在一个文件夹中，并在该文件夹中有一个GM_info.json文件，该文件应包含地震动文件名及其时间间隔  
+
+        Args:
+            GM_folder (str | Path): 地震动文件所在文件夹
+            GMs (list[str]): 一个包含所有地震动文件名(不包括后缀)的列表  
+            suffix (str, optional): 地震动文件后缀，默认为.txt
+            th_scaling (float, optional): 地震动时程缩放系数(在读取时程数据时使用)
+
+        Example:
+            >>> select_ground_motions(GMs=['GM1', 'GM2'], suffix='.txt')
+        
+        Note:
+        -----
+        运行等延性分析时，`th_scaling`不会影响`R`值和其他无量纲响应的结果，但会影响有量纲响应的结果。
+        """
+        # 只统计地震动的数据位置、数量、时间间隔等信息，不存储地震动时程数据
+        if self.cls_cache and NRSA.has_GM_data:
+            logger.info('Using cached ground motion data from class layer')
+            return
+        GM_folder = Path(GM_folder)
+        if not self._check_path_name(GM_folder):
+            raise Exception('Analysis has been terminated')
+        self.suffix = suffix
+        self.GM_names = GMs
+        with open(GM_folder / 'GM_info.json', 'r') as f:
+            dt_dict = json.loads(f.read())
+        self.GM_dts, self.GM_NPTS, self.GM_durations = [], [], []
+        for name in self.GM_names:
+            self.GM_dts.append(dt_dict[name])
+            th = np.loadtxt(GM_folder / f'{name}{suffix}')
+            self.GM_NPTS.append(len(th))
+            self.GM_durations.append(round((len(th) - 1) * dt_dict[name], 6))
+        self.GM_N = len(self.GM_names)
+        self.GM_folder = GM_folder
+        self.GM_global_sf = th_scaling
+        self.GM_indiv_sf = [1] * self.GM_N
+        spectra_folder = self.wkdir / 'Unscaled 5%-damping spectra'
+        if not Path(spectra_folder).exists():
+            os.makedirs(spectra_folder)
+        self.unscaled_RSA_5pct = np.zeros((len(self.T), self.GM_N))
+        self.unscaled_RSV_5pct = np.zeros((len(self.T), self.GM_N))
+        self.unscaled_RSD_5pct = np.zeros((len(self.T), self.GM_N))
+        self.unscaled_RSA_spc = np.zeros((len(self.T), self.GM_N))  # 特定阻尼比反应谱
+        for i in range(self.GM_N):
+            print(f'  Calculating unscaled 5%-damping response spectra ({i+1}/{self.GM_N})   \r', end='')
+            th = np.loadtxt(self.GM_folder / f'{self.GM_names[i]}{self.suffix}') * self.GM_global_sf
+            RSA, RSV, RSD = spectrum(ag=th, dt=self.GM_dts[i], T=self.T, zeta=0.05)
+            np.savetxt(spectra_folder / f'RSA_{self.GM_names[i]}.txt', RSA)
+            self.unscaled_RSA_5pct[:, i] = RSA
+            self.unscaled_RSA_spc[:, i] = RSA  # 先用5%阻尼比计算反应谱，如果分析用阻尼比不等于5%再进行计算
+            self.unscaled_RSV_5pct[:, i] = RSV
+            self.unscaled_RSD_5pct[:, i] = RSD
+        print('', end='')
+        np.savetxt(spectra_folder / 'Periods.txt', self.T)
+        logger.success(f'{self.GM_N} ground motion records have been selected')
+        if self.cls_cache:
+            # 将地震动数据缓存至类层面
+            logger.info('Caching ground motion data to class layer')
+            NRSA.GM_names = self.GM_names
+            NRSA.GM_folder = self.GM_folder
+            NRSA.GM_N = self.GM_N
+            NRSA.GM_global_sf = self.GM_global_sf
+            NRSA.GM_dts = self.GM_dts
+            NRSA.GM_NPTS = self.GM_NPTS
+            NRSA.GM_durations = self.GM_durations
+            NRSA.unscaled_RSA_5pct = self.unscaled_RSA_5pct
+            NRSA.unscaled_RSV_5pct = self.unscaled_RSV_5pct
+            NRSA.unscaled_RSD_5pct = self.unscaled_RSD_5pct
+            NRSA.unscaled_RSA_spc[0.05] = self.unscaled_RSA_spc
+            NRSA.suffix = self.suffix
+            NRSA.GM_global_sf = self.GM_global_sf
+            NRSA.GM_indiv_sf = self.GM_indiv_sf
+            NRSA.has_GM_data = True
 
     def analysis_settings(self,
             period: np.ndarray,
@@ -202,70 +286,12 @@ class NRSA:
         self.fv_duration = fv_duration
         logger.success('Analysis settings have been set')
 
-    def select_ground_motions(self,
-            GM_folder: str | Path,
-            GMs: list[str],
-            suffix: str='.txt',
-            th_scaling: float=1.0
-        ):
-        """选择地震动加速度时程文件，所有地震地震动应放在一个文件夹中，并在该文件夹中有一个GM_info.json文件，该文件应包含地震动文件名及其时间间隔  
-
-        Args:
-            GM_folder (str | Path): 地震动文件所在文件夹
-            GMs (list[str]): 一个包含所有地震动文件名(不包括后缀)的列表  
-            suffix (str, optional): 地震动文件后缀，默认为.txt
-            th_scaling (float, optional): 地震动时程缩放系数(在读取时程数据时使用)
-
-        Example:
-            >>> select_ground_motions(GMs=['GM1', 'GM2'], suffix='.txt')
-        
-        Note:
-        -----
-        运行等延性分析时，`th_scaling`不会影响`R`值和其他无量纲响应的结果，但会影响有量纲响应的结果。
-        """
-        # 只统计地震动的数据位置、数量、时间间隔等信息，不存储地震动时程数据
-        GM_folder = Path(GM_folder)
-        if not self._check_path_name(GM_folder):
-            raise Exception('Analysis has been terminated')
-        self.suffix = suffix
-        self.GM_names = GMs
-        with open(GM_folder / 'GM_info.json', 'r') as f:
-            dt_dict = json.loads(f.read())
-        for name in self.GM_names:
-            self.GM_dts.append(dt_dict[name])
-            th = np.loadtxt(GM_folder / f'{name}{suffix}')
-            self.GM_NPTS.append(len(th))
-            self.GM_durations.append(round((len(th) - 1) * dt_dict[name], 6))
-        self.GM_N = len(self.GM_names)
-        self.GM_folder = GM_folder
-        self.GM_global_sf = th_scaling
-        self.GM_indiv_sf = [1] * self.GM_N
-        spectra_folder = self.wkdir / 'Unscaled 5%-damping spectra'
-        if not Path(spectra_folder).exists():
-            os.makedirs(spectra_folder)
-        self.unscaled_RSA = np.zeros((len(self.T), self.GM_N))
-        self.unscaled_RSV = np.zeros((len(self.T), self.GM_N))
-        self.unscaled_RSD = np.zeros((len(self.T), self.GM_N))
-        for i in range(self.GM_N):
-            print(f'  Calculating unscaled 5%-damping response spectra ({i+1}/{self.GM_N})   \r', end='')
-            th = np.loadtxt(self.GM_folder / f'{self.GM_names[i]}{self.suffix}') * self.GM_global_sf
-            RSA, RSV, RSD = spectrum(ag=th, dt=self.GM_dts[i], T=self.T, zeta=0.05)
-            np.savetxt(spectra_folder / f'RSA_{self.GM_names[i]}.txt', RSA)
-            self.unscaled_RSA[:, i] = RSA
-            self.unscaled_RSV[:, i] = RSV
-            self.unscaled_RSD[:, i] = RSD
-        print('', end='')
-        np.savetxt(spectra_folder / 'Periods.txt', self.T)
-        self.unscaled_spectra_folder_5pct = spectra_folder
-        if self.damping_equal_5pct:
-            self.unscaled_spectra_folder_spc = self.unscaled_spectra_folder_5pct
-        logger.success(f'{self.GM_N} ground motion records have been selected')
-
     def running_settings(self,
             parallel: int=1,
             auto_quit: bool=False,
             hidden_prints: bool=True,
             show_monitor: bool=True,
+            solver: Literal['newmark', 'ops']='newmark'
         ):
         """运行设置
 
@@ -274,6 +300,7 @@ class NRSA:
             auto_quit (bool, optional): 运行结束后是否自动关闭监控器
             hidden_prints (bool, optional): 是否隐藏求解过程中的输出，默认为True
             show_monitor (bool, optional): 是否显示监控器，默认为True
+            solver (Literal['newmark', 'ops'], optional): 求解器类型，默认为'newmark'
         """
         if not isinstance(parallel, int) and parallel < 0:
             logger.error(f'The parallel parameter should be a non-negative integer: {parallel}')
@@ -283,11 +310,6 @@ class NRSA:
         self.parallel = parallel
         self.gm_batch_size = 1  # 每个进程处理的地震动数量，暂时不支持
         self.auto_quit = auto_quit
-        solver = 'auto'
-        if solver == 'auto':
-            solver = 'SDOF_solver'
-        else:
-            ...
         self.solver = solver
         self.hidden_prints = hidden_prints
         self.show_monitor = show_monitor
@@ -327,6 +349,9 @@ class NRSA:
         self.app.exec_()
 
     def _write_unscaled_spectra_with_specific_damping(self):
+        """如果分析阻尼比不等于，则重新计算特定阻尼比反应谱并幅值路径"""
+        if self.cls_cache and NRSA.has_GM_data and self.damping in NRSA.unscaled_RSA_spc:
+            return
         spectra_folder = self.wkdir / f'Unscaled {self.damping:.2%}-damping spectra'
         if not Path(spectra_folder).exists():
             os.makedirs(spectra_folder)
@@ -334,10 +359,14 @@ class NRSA:
             print(f'  Calculating unscaled {self.damping:.2%}-damping response spectra ({i+1}/{self.GM_N})   \r', end='')
             th = np.loadtxt(self.GM_folder / f'{self.GM_names[i]}{self.suffix}')
             RSA, _, _ = spectrum(ag=th, dt=self.GM_dts[i], T=self.T, zeta=self.damping)
+            self.unscaled_RSA_spc[:, i] = RSA
             np.savetxt(spectra_folder / f'RSA_{self.GM_names[i]}.txt', RSA)
         print('', end='')
         np.savetxt(spectra_folder / 'Periods.txt', self.T)
         self.unscaled_spectra_folder_spc = spectra_folder
+        if self.cls_cache:
+            NRSA.unscaled_RSA_spc[self.damping] = self.unscaled_RSA_spc
+            NRSA.unscaled_spectra_folder_spc = self.unscaled_spectra_folder_spc
 
     @staticmethod
     def _check_path_name(*paths: Path):

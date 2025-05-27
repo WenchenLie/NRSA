@@ -1,0 +1,35 @@
+{
+    "//": "------------- Running log -------------",
+    "Job name": "Test_4",
+    "Analysis type": "CDA",
+    "Start time": "2025-05-27_23-01-21",
+    "Parallel": 2,
+    "Ground motion folder": "data/GMs",
+    "Ground motions": {
+        "Northridge": {
+            "Start time": "2025-05-27_23-01-26",
+            "End time": "2025-05-27_23-04-53",
+            "Elapsed time": 207.233,
+            "Analysis number": 7109,
+            "Analysis converge": true,
+            "Iteration converge": true,
+            "Average analyses": 23.775919732441473
+        },
+        "Kobe": {
+            "Start time": "2025-05-27_23-01-26",
+            "End time": "2025-05-27_23-04-58",
+            "Elapsed time": 211.624,
+            "Analysis number": 7139,
+            "Analysis converge": true,
+            "Iteration converge": true,
+            "Average analyses": 23.876254180602007
+        }
+    },
+    "End time": "2025-05-27_23-04-58",
+    "Elapsed time": 216.688,
+    "Total analyses": 14248,
+    "Average analyses": 23.83,
+    "Total SDOFs": 598,
+    "Unconverged analyses": 0,
+    "Unconverged iterations": 0
+}

@@ -20,15 +20,12 @@ logger.add(
 )
 
 class ConstantDuctilityAnalysis(NRSA):
-    def __init__(self, job_name: str):
-        super().__init__(job_name, 'CDA')
+    def __init__(self, job_name: str, cls_cache: bool=False):
+        super().__init__(job_name, cls_cache, analysis_type='CDA')
 
 class ConstantStrengthAnalysis(NRSA):
-    def __init__(self, job_name: str):
-        super().__init__(job_name, 'CSA')
-
-    def select_ground_motions(self, *args, **kwargs):
-        super().select_ground_motions(*args, **kwargs)
+    def __init__(self, job_name: str, cls_cache: bool=False):
+        super().__init__(job_name, cls_cache, analysis_type='CSA')
 
     def scale_ground_motions(self,
             method: str,
@@ -90,7 +87,7 @@ class ConstantStrengthAnalysis(NRSA):
         for idx, gm_name in enumerate(self.GM_names):
             print(f'  Calculating scaling factors... ({idx+1}/{self.GM_N})     \r', end='')
             th = np.loadtxt(self.GM_folder / f'{gm_name}{self.suffix}')
-            RSA, RSV, RSD = self.unscaled_RSA[:, idx], self.unscaled_RSV[:, idx], self.unscaled_RSD[:, idx]  # 无缩放5%阻尼比反应谱
+            RSA, RSV, RSD = self.unscaled_RSA_5pct[:, idx], self.unscaled_RSV_5pct[:, idx], self.unscaled_RSD_5pct[:, idx]  # 无缩放5%阻尼比反应谱
             if method == 'a':
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')

@@ -23,7 +23,7 @@ logger.add(
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
     level="DEBUG"
 )
-SOLVER_TYPES = Literal['SDOF_solver', 'SDOF_batched_solver', 'PDtSDOF_batched_solver']
+SOLVER_TYPES = Literal['ops_solver']
 ANA_TYPE_NAME = {'CDA': 'Constant ductility analysis', 'CSA': 'Constant strength analysis'}
 
 class Win(QDialog):
@@ -75,8 +75,8 @@ class Win(QDialog):
         self.GM_NPTS = nrsa.GM_NPTS
         self.GM_durations = nrsa.GM_durations
         self.GM_indiv_sf = nrsa.GM_indiv_sf
-        self.unscaled_spectra_folder_5pct = nrsa.unscaled_spectra_folder_5pct
-        self.unscaled_spectra_folder_spc = nrsa.unscaled_spectra_folder_spc
+        self.unscaled_RSA_5pct = nrsa.unscaled_RSA_5pct
+        self.unscaled_RSA_spc = nrsa.unscaled_RSA_spc
         self.parallel = nrsa.parallel
         self.gm_batch_size = nrsa.gm_batch_size
         self.auto_quit = nrsa.auto_quit
@@ -231,8 +231,8 @@ class _Worker(QThread):
         self.GM_durations = win.GM_durations
         self.GM_global_sf = win.GM_global_sf
         self.GM_indiv_sf = win.GM_indiv_sf
-        self.unscaled_spectra_folder_5pct = win.unscaled_spectra_folder_5pct
-        self.unscaled_spectra_folder_spc = win.unscaled_spectra_folder_spc
+        self.unscaled_RSA_5pct = win.unscaled_RSA_5pct
+        self.unscaled_RSA_spc = win.unscaled_RSA_spc
         self.parallel = win.parallel
         self.gm_batch_size = win.gm_batch_size
         self.auto_quit = win.auto_quit
@@ -311,21 +311,17 @@ class _Worker(QThread):
                     raise error
                 elif flag == 'e':
                     # 中断计算
-                    self.signal_ana_termination.emit()
                     break
                 elif flag == 'f':
                     # 该地震动计算开始
                     ...
                 if finished_gm == self.GM_N:
                     # 所有计算完成
-                    self.signal_ana_termination.emit()
                     if uncorverged_ana == 0 and uncorverged_iter == 0:
                         self.signal_ana_suscess.emit()
                     else:
                         self.signal_ana_failed.emit((uncorverged_ana, uncorverged_iter))
                     break
-            else:
-                time.sleep(1)
         end_time = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(time.time()))
         elaspsed_time = round(time.time() - self.start_time, 3)
         self.log['End time'] = end_time
@@ -343,6 +339,7 @@ class _Worker(QThread):
         json.dump(self.log, open(self.wkdir / f'Log_{start_date}.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
         json.dump(self.log, open(f'logs/Log_{start_date}.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
         self.lock.release()
+        self.signal_ana_termination.emit()
 
     def kill(self):
         """中断计算"""
@@ -385,10 +382,15 @@ class _Worker(QThread):
             R_init = self.R_init
             R_incr = self.R_incr
             if self.analysis_type == 'CDA':
-                unscaled_RSA = np.loadtxt(self.unscaled_spectra_folder_spc / f'RSA_{gm_name}.txt')
+                # 等延性分析中R值和材料参数通过指定阻尼比的反应谱来确定
+                if isinstance(self.unscaled_RSA_spc, dict):
+                    unscaled_RSA = self.unscaled_RSA_spc[self.damping][:, gm_idx]
+                else:
+                    unscaled_RSA = self.unscaled_RSA_spc[:, gm_idx]
                 get_Sa = interp1d(self.T, unscaled_RSA, bounds_error=True)
             elif self.analysis_type == 'CSA':
-                unscaled_RSA = np.loadtxt(self.unscaled_spectra_folder_5pct / f'RSA_{gm_name}.txt')
+                # 等强度分析中R值和材料参数通过5%阻尼比的反应谱来确定
+                unscaled_RSA = self.unscaled_RSA_5pct[:, gm_idx]
                 get_Sa = interp1d(self.T, unscaled_RSA * self.GM_indiv_sf[gm_idx], bounds_error=True)
             get_Sa(periods[0])  # 测试period是否在get_Sa的自变量范围内
             get_Sa(periods[-1])
@@ -413,18 +415,13 @@ class _Worker(QThread):
                 assert False, f'Unknow running type: {self.analysis_type}'
             ls_paras.append(args)
         self.set_button_enabled()
-        if self.parallel > 1:
-            with multiprocessing.Pool(self.parallel) as pool:
-                for idx_gm in range(self.GM_N):
-                    pool.apply_async(func, ls_paras[idx_gm])
-                logger.info('Analysis started')
-                self.get_queue(queue)
-                pool.close()
-                pool.join()
-        else:
-            self.get_queue(queue)
+        with multiprocessing.Pool(self.parallel) as pool:
             for idx_gm in range(self.GM_N):
-                constant_ductility_iteration(*ls_paras[idx_gm])
+                pool.apply_async(func, ls_paras[idx_gm])
+            logger.info('Analysis started')
+            self.get_queue(queue)
+            pool.close()
+            pool.join()
 
     def set_button_enabled(self):
         """将`保存`, `中断`, `暂停`三个按钮激活"""

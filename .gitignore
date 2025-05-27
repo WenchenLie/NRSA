@@ -167,3 +167,4 @@ verification/
 temp/
 logs/
 main_test.py
+*_test.py
