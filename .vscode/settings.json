@@ -1,0 +1,31 @@
+{
+    "files.associations": {
+        "*.tcl": "opensees",
+        "functional": "c",
+        "array": "c",
+        "deque": "c",
+        "string": "c",
+        "unordered_map": "c",
+        "vector": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "compare": "c",
+        "cstdint": "c",
+        "cstdlib": "c",
+        "mutex": "c",
+        "algorithm": "c",
+        "pthread.h": "c",
+        "random": "c",
+        "limits": "c",
+        "sstream": "c",
+        "tuple": "c",
+        "system_error": "c",
+        "complex": "c",
+        "ratio": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "typeinfo": "c",
+        "bit": "c",
+        "optional": "c"
+    }
+}

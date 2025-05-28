@@ -11,10 +11,10 @@ from scipy.interpolate import interp1d
 import multiprocessing
 from .utils import SDOFHelper, SDOFError
 from .ops_solver import ops_solver
-from packages.newmark import newmark_solver
+from .newmark import newmark_solver
 
 
-SOLVER_TYPES = Literal['ops', 'newmark']
+SOLVER_TYPES = Literal['auto', 'newmark', 'ops']
 
 def constant_ductility_iteration(*args, **kwargs):
     queue: multiprocessing.Queue = args[-4]
@@ -53,7 +53,8 @@ def _constant_ductility_iteration(
     queue: multiprocessing.Queue,
     stop_event,
     pause_event,
-    lock
+    lock,
+    **kwargs
 ):
     """等延性分析迭代函数
 
@@ -83,6 +84,7 @@ def _constant_ductility_iteration(
         stop_event: 停止事件
         pause_event: 暂停事件
         lock: 锁，文件读写时使用
+        kwargs: 求解器参数
 
     Note:
     ----
@@ -125,10 +127,15 @@ def _constant_ductility_iteration(
                 P = thetaD * E * height
             solver_paras = (Ti, th, dt, ops_paras, uy, fv_duration, scaling_factor, P, height, damping, mass)
             try:
-                if solver == 'ops':
-                    res: dict = ops_solver(*solver_paras)
+                if solver == 'auto':
+                    for solver_func in [newmark_solver, ops_solver]:
+                        res: dict = solver_func(*solver_paras, **kwargs)
+                        if res['converge']:
+                            break 
+                elif solver == 'ops':
+                    res: dict = ops_solver(*solver_paras, **kwargs)
                 elif solver == 'newmark':
-                    res: dict = newmark_solver(*solver_paras)
+                    res: dict = newmark_solver(*solver_paras, **kwargs)
                 else:
                     raise SDOFError(f'Wrong solver name: {solver}')
             except:

@@ -34,13 +34,16 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-import openseespy.opensees as ops
 if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    sys.path.append(Path(__file__).parent.parent)
     from utils import SDOFError, SDOFHelper, a2u
     from utils import is_iterable
 else:
     from .utils import SDOFError, SDOFHelper, a2u
     from .utils import is_iterable
+from . import opensees as ops
 
 
 __all__ = ['ops_solver']
@@ -83,6 +86,7 @@ def ops_solver(
         g: float=9800,
         collapse_disp: float=1e14,
         maxAnalysis_disp: float=1e15,
+        **kwargs
     ) -> dict[str, bool | float]:
     """SDOF求解函数，每次调用对一个SDOF进行非线性时程分析。
     模型结构为两个具有相同位置的结点，中间采用zeroLength单元连接。

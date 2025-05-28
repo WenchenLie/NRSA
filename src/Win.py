@@ -23,7 +23,6 @@ logger.add(
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
     level="DEBUG"
 )
-SOLVER_TYPES = Literal['ops_solver']
 ANA_TYPE_NAME = {'CDA': 'Constant ductility analysis', 'CSA': 'Constant strength analysis'}
 
 class Win(QDialog):
@@ -32,7 +31,6 @@ class Win(QDialog):
 
         Args:
             nrsa (NRSA): NRSA类的实例
-            solver (SOLVER_TYPES): SDOF求解器
         """
         super().__init__()
         self.ui = Ui_Win()
@@ -81,6 +79,7 @@ class Win(QDialog):
         self.gm_batch_size = nrsa.gm_batch_size
         self.auto_quit = nrsa.auto_quit
         self.show_monitor = nrsa.show_monitor
+        self.kwargs = nrsa.kwargs
         # 新实例属性
         self.N_period = len(self.period)  # 周期点数量
         self.finished_gm = 0  # 已完成的地震动数量
@@ -240,6 +239,7 @@ class _Worker(QThread):
         self.finished_gm = win.finished_gm
         self.finished_num = win.finished_num
         self.show_monitor = win.show_monitor
+        self.kwargs = win.kwargs
         # 一些控制线程的属性
         self.reuslt_column = ['id', 'converge', 'collapse', 'maxDisp', 'maxVel',
             'maxAccel', 'Ec', 'Ev', 'maxReaction', 'CD', 'CPD', 'resDisp']
@@ -399,6 +399,7 @@ class _Worker(QThread):
             tol_R = self.tol_R
             max_iter = self.max_iter
             hidden_prints = self.hidden_prints
+            kwargs = self.kwargs
             if self.analysis_type == 'CDA':
                 args = (wkdir, periods, material_function, material_paras, damping, target_ductility,\
                     thetaD, mass, he, gm_name, gm_th, scaling_factor, dt, fv_duration, R_init, R_incr,\
@@ -417,7 +418,7 @@ class _Worker(QThread):
         self.set_button_enabled()
         with multiprocessing.Pool(self.parallel) as pool:
             for idx_gm in range(self.GM_N):
-                pool.apply_async(func, ls_paras[idx_gm])
+                pool.apply_async(func, args=ls_paras[idx_gm], kwds=kwargs)
             logger.info('Analysis started')
             self.get_queue(queue)
             pool.close()

@@ -80,7 +80,7 @@ if __name__ == "__main__":
             thetaD=0  # P-Delta coefficient
         )
         model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
-        model.running_settings(parallel=1, auto_quit=True, hidden_prints=True, show_monitor=True, solver='ops')
+        model.running_settings(parallel=1, auto_quit=True, hidden_prints=False, show_monitor=True, solver='auto')
         model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')

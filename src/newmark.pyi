@@ -6,13 +6,13 @@ def newmark_solver(
     ag: np.ndarray,  # 只能一维
     dt: float,
     materials: dict[str, tuple],
-    uy: float=0.0,
-    fv_duration: float=0.0,
-    sf: float=1.0,
-    P: float=0.0,
-    h: float=1.0,
-    zeta: float=0.05,
-    m: float=1.0,
+    uy: float,
+    fv_duration: float,
+    sf: float,
+    P: float,
+    h: float,
+    zeta: float,
+    m: float,
     g: float=9800,
     collapse_disp: float=1e14,
     maxAnalysis_disp: float=1e15,
@@ -20,5 +20,6 @@ def newmark_solver(
     max_iter: float = 100,
     beta: float = 0.25,
     gamma: float = 0.5,
-    display_info: bool=True
+    display_info: bool=True,
+    **kwargs
 ): ...

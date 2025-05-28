@@ -42,13 +42,13 @@ def newmark_solver(
     cnp.ndarray[DTYPE_t, ndim=1] ag,
     double dt,
     dict materials,
-    double uy=0.0,
-    double fv_duration=0.0,
-    double sf=1.0,
-    double P=0.0,
-    double h=1,
-    double zeta=0.05,
-    double m=1,
+    double uy,
+    double fv_duration,
+    double sf,
+    double P,
+    double h,
+    double zeta,
+    double m,
     double g=9800,
     double collapse_disp=1e14,
     double maxAnalysis_disp=1e15,
@@ -57,6 +57,7 @@ def newmark_solver(
     double beta=0.25,
     double gamma=0.5,
     bint display_info=True,
+    **kwargs
 ):
     # 初始化参数
     cdef:

@@ -93,6 +93,7 @@ class NRSA:
         self.damping_equal_5pct = False
         self.unscaled_spectra_folder_5pct: Path  # 5%阻尼比反应谱路径
         self.unscaled_spectra_folder_spc: Path  # 指定阻尼比反应谱路径
+        self.kwargs = {}  # 用于输入到求解器的参数
 
     def set_working_directory(self, wkdir: str | Path, folder_exists: Literal['ask', 'overwrite', 'delete']='ask'):
         """设置工作路径
@@ -291,7 +292,8 @@ class NRSA:
             auto_quit: bool=False,
             hidden_prints: bool=True,
             show_monitor: bool=True,
-            solver: Literal['newmark', 'ops']='newmark'
+            solver: Literal['auto', 'newmark', 'ops']='auto',
+            **kwargs
         ):
         """运行设置
 
@@ -300,7 +302,9 @@ class NRSA:
             auto_quit (bool, optional): 运行结束后是否自动关闭监控器
             hidden_prints (bool, optional): 是否隐藏求解过程中的输出，默认为True
             show_monitor (bool, optional): 是否显示监控器，默认为True
-            solver (Literal['newmark', 'ops'], optional): 求解器类型，默认为'newmark'
+            solver (Literal['auto', 'newmark', 'ops'], optional): 求解器类型，默认为'auto'，
+              即按照'newmark'->'ops'的顺序选择，不收敛则向后切换
+            **kwargs: 用于输入到求解器的参数
         """
         if not isinstance(parallel, int) and parallel < 0:
             logger.error(f'The parallel parameter should be a non-negative integer: {parallel}')
@@ -313,6 +317,7 @@ class NRSA:
         self.solver = solver
         self.hidden_prints = hidden_prints
         self.show_monitor = show_monitor
+        self.kwargs = kwargs
 
     def run(self):
         if not self.damping_equal_5pct:
