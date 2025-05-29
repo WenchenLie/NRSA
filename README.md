@@ -6,7 +6,7 @@
 
 Users can define custom inelastic materials based on the OpenSees material library. Nonlinear response spectra can be obtained using either CDA or CSA, including the constant ductility spectrum (*R*-*μ*-*T* relationship), ductility demand spectrum, etc.
 
-Due to Python being an interpreted language, in order to speed up the computation, the Newmark-β solver was developed using Cyphon. Multiple processes were also used to achieve parallel computing of multiple earthquake motions.
+Due to Python being an interpreted language, in order to speed up the computation, the Newmark-β solver was developed using Cython. Multi-processing technology were also used to achieve parallel computing of multiple earthquake motions.
 
 ## 2. Usage
 
