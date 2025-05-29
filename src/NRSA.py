@@ -121,7 +121,7 @@ class NRSA:
             th_scaling (float, optional): 地震动时程缩放系数(在读取时程数据时使用)
 
         Example:
-            >>> select_ground_motions(GMs=['GM1', 'GM2'], suffix='.txt')
+            >>> select_ground_motions('.data/GMs', GMs=['GM1', 'GM2'], suffix='.txt')
         
         Note:
         -----

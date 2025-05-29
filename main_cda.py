@@ -85,7 +85,7 @@ if __name__ == "__main__":
         model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
-    
+
     # Compare with SeismoSignal results
     g = 9800
     plt.figure(figsize=(12, 8))
@@ -108,7 +108,7 @@ if __name__ == "__main__":
         plt.legend()
     plt.tight_layout()
     plt.show()
-    
+
     # Plot R-μ-T curves
     plt.figure(figsize=(12, 8))
     for i, gm in enumerate(['Northridge', 'Kobe']):
