@@ -1,20 +1,19 @@
 import os, json
 import time
 import traceback
+import multiprocessing
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 
-import multiprocessing
+from .config import SOLVER_TYPING
 from .utils import SDOFHelper, SDOFError
 from .ops_solver import ops_solver
 from .newmark import newmark_solver
 
-
-SOLVER_TYPES = Literal['auto', 'newmark', 'ops']
 
 def constant_ductility_iteration(*args, **kwargs):
     queue: multiprocessing.Queue = args[-4]
@@ -45,7 +44,7 @@ def _constant_ductility_iteration(
     R_init: float,
     R_incr: float,
     get_Sa: interp1d,
-    solver: SOLVER_TYPES,
+    solver: SOLVER_TYPING,
     tol_ductility: float,
     tol_R: float,
     max_iter: int,
@@ -132,9 +131,9 @@ def _constant_ductility_iteration(
                         res: dict = solver_func(*solver_paras, **kwargs)
                         if res['converge']:
                             break 
-                elif solver == 'ops':
+                elif solver == 'OPS':
                     res: dict = ops_solver(*solver_paras, **kwargs)
-                elif solver == 'newmark':
+                elif solver == 'Newmark-Newton':
                     res: dict = newmark_solver(*solver_paras, **kwargs)
                 else:
                     raise SDOFError(f'Wrong solver name: {solver}')

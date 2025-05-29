@@ -1,6 +1,8 @@
 import time
 from math import pi, sqrt
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from src.analysis import ConstantStrengthAnalysis
 
 
@@ -48,20 +50,41 @@ def material_definition(
 
 
 if __name__ == "__main__":
+    Cy_ls = [0.7, 1, 1.2]
     time_start = time.time()
     T = np.arange(0.02, 6, 0.02)
-    material_paras: dict[str, float] = {
-        'Cy': 1,
-        'alpha': 0.02
-    }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
-    # 需Python 3.7+从而保证字典的键值对顺序不变
-    model = ConstantStrengthAnalysis('Test')
-    model.set_working_directory('./CSA_results/')
-    model.analysis_settings(T, material_definition, material_paras, damping=0.05, thetaD=0)
-    model.select_ground_motions('data/GMs', [f'th{i}' for i in range(1, 45)], suffix='.th')
-    code_spec = np.loadtxt('data/DBE.txt')
-    model.scale_ground_motions('b', 1.4, code_spec, save_sf=True, save_scaled_spec=True)
-    model.running_settings(parallel=20, auto_quit=False, hidden_prints=True, show_monitor=True)
-    model.run()
+    for Cy in Cy_ls:
+        material_paras: dict[str, float] = {
+            'Cy': Cy,
+            'alpha': 0.02
+        }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
+        # 需Python 3.7+从而保证字典的键值对顺序不变
+        model = ConstantStrengthAnalysis(f'Test_{Cy}')
+        model.set_working_directory(f'./CSA_results/{Cy}', folder_exists='delete')
+        model.analysis_settings(T, material_definition, material_paras, damping=0.05, thetaD=0)
+        model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
+        code_spec = np.loadtxt('./data/DBE_spec.txt')
+        model.scale_ground_motions('b', 1, code_spec, plot=True)
+        model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True)
+        model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
+    
+    # Ductility demand spectrum
+    g = 9800
+    plt.figure(figsize=(12, 8))
+    for i, gm in enumerate(['Northridge', 'Kobe']):
+        plt.subplot(2, 1, i + 1)
+        for j, Cy in enumerate(Cy_ls):
+            res = pd.read_csv(f'./CSA_results/{Cy}/results/{gm}.csv')
+            T = res['T']
+            miu = res['miu']
+            plt.plot(T, miu, label=f'Cy={Cy}')
+        plt.xlabel('Period (s)')
+        plt.ylabel('Ductility')
+        plt.xlim(0, 6)
+        plt.ylim(0)
+        plt.title(f'Ductility Damend Spectrum ({gm})')
+        plt.legend()
+    plt.tight_layout()
+    plt.show()

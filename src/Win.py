@@ -1,29 +1,20 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .NRSA import NRSA
-import os, sys, time, json
+import os, time, json
 import multiprocessing
-from typing import Literal
 
 import numpy as np
-from loguru import logger
 from scipy.interpolate import interp1d
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
 from ui.Win import Ui_Win
+from .config import LOGGER, ANA_TYPE_NAME
 from .constant_ductility_iteration import constant_ductility_iteration
 from .constant_strength_analysis import constant_strength_analysis
 
-
-logger.remove()
-logger.add(
-    sink=sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
-    level="DEBUG"
-)
-ANA_TYPE_NAME = {'CDA': 'Constant ductility analysis', 'CSA': 'Constant strength analysis'}
 
 class Win(QDialog):
     def __init__(self, nrsa: NRSA):
@@ -109,7 +100,7 @@ class Win(QDialog):
     def ui_kill(self):
         """点击中断按钮"""
         if QMessageBox.question(self, 'Warning', 'Are you sure to interrupt the analysis?') == QMessageBox.Yes:
-            logger.warning('Interrupting analysis')
+            LOGGER.warning('Interrupting analysis')
             self.worker.kill()
 
     def ui_pause_resume(self):
@@ -163,12 +154,12 @@ class Win(QDialog):
 
     def ana_suscess(self):
         """计算成功"""
-        logger.success('Analysis completed')
+        LOGGER.success('Analysis completed')
     
     def ana_failed(self, tuple_):
         """计算失败"""
-        logger.success('Analysis completed')
-        logger.warning(f'Unconverged iterations: {tuple_[1]}, Unconverged analyses: {tuple_[0]}')
+        LOGGER.success('Analysis completed')
+        LOGGER.warning(f'Unconverged iterations: {tuple_[1]}, Unconverged analyses: {tuple_[0]}')
 
     def start_worker(self):
         self.worker = _Worker(self)
@@ -356,9 +347,8 @@ class _Worker(QThread):
 
     def run(self):
         """开始运行子线程，进行等延性分析"""
-        ANA_TYPE_NAME = {'CDA': 'Constant ductility analysis', 'CSA': 'Constant strength analysis'}
         s = '(Multi-processing)' if self.parallel > 1 else ''
-        logger.success(f'Running started: {ANA_TYPE_NAME[self.analysis_type]} {s}')
+        LOGGER.success(f'Running started: {ANA_TYPE_NAME[self.analysis_type]} {s}')
         ls_paras: list[tuple] = []
         queue = self.queue
         stop_event = self.stop_event
@@ -419,7 +409,7 @@ class _Worker(QThread):
         with multiprocessing.Pool(self.parallel) as pool:
             for idx_gm in range(self.GM_N):
                 pool.apply_async(func, args=ls_paras[idx_gm], kwds=kwargs)
-            logger.info('Analysis started')
+            LOGGER.info('Analysis started')
             self.get_queue(queue)
             pool.close()
             pool.join()

@@ -9,7 +9,7 @@ from typing import Literal, Callable
 
 import shutil
 import numpy as np
-from loguru import logger
+from .config import LOGGER, ANA_TYPE_NAME, AVAILABLE_SOLVERS, SOLVER_TYPING
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
@@ -17,14 +17,7 @@ from .Win import Win
 from .spectrum import spectrum
 
 
-logger.remove()
-logger.add(
-    sink=sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
-    level="DEBUG"
-)
 SKIP = False
-ANA_TYPE_NAME = {'CDA': 'Constant ductility analysis', 'CSA': 'Constant strength analysis'}
 
 class NRSA:
     cwd = Path().cwd()
@@ -42,7 +35,7 @@ class NRSA:
               动读取缓存，用于循环实例化的分析，默认为False
             analysis_type (Literal['CDA', 'CSA']): CDA - Constant ductility analysis, CSA - Constant strength analysis
         """
-        logger.success(f'=============== {ANA_TYPE_NAME[analysis_type]} ===============')
+        LOGGER.success(f'=============== {ANA_TYPE_NAME[analysis_type]} ===============')
         self.start_time = time.time()
         self.job_name = job_name
         self.analysis_type = analysis_type
@@ -51,7 +44,7 @@ class NRSA:
         self._init_QApp()
         if not Path('logs').exists():
             os.makedirs('logs')
-        logger.success(f'Job name defined: {self.job_name}')
+        LOGGER.success(f'Job name defined: {self.job_name}')
 
     def _init_QApp(self):
         app = QApplication.instance()
@@ -111,7 +104,7 @@ class NRSA:
             return
         if not Path(self.wkdir / 'results').exists():
             os.makedirs(self.wkdir / 'results')
-        logger.success(f'Working directory has been set: {self.wkdir.as_posix()}')
+        LOGGER.success(f'Working directory has been set: {self.wkdir.as_posix()}')
 
     def select_ground_motions(self,
             GM_folder: str | Path,
@@ -136,7 +129,7 @@ class NRSA:
         """
         # 只统计地震动的数据位置、数量、时间间隔等信息，不存储地震动时程数据
         if self.cls_cache and NRSA.has_GM_data:
-            logger.info('Using cached ground motion data from class layer')
+            LOGGER.info('Using cached ground motion data from class layer')
             return
         GM_folder = Path(GM_folder)
         if not self._check_path_name(GM_folder):
@@ -173,10 +166,10 @@ class NRSA:
             self.unscaled_RSD_5pct[:, i] = RSD
         print('', end='')
         np.savetxt(spectra_folder / 'Periods.txt', self.T)
-        logger.success(f'{self.GM_N} ground motion records have been selected')
+        LOGGER.success(f'{self.GM_N} ground motion records have been selected')
         if self.cls_cache:
             # 将地震动数据缓存至类层面
-            logger.info('Caching ground motion data to class layer')
+            LOGGER.info('Caching ground motion data to class layer')
             NRSA.GM_names = self.GM_names
             NRSA.GM_folder = self.GM_folder
             NRSA.GM_N = self.GM_N
@@ -242,32 +235,32 @@ class NRSA:
         """
         # 只做相关检查，不做实际的操作
         if period[0] == 0:
-            logger.error('The first period cannot be 0')
+            LOGGER.error('The first period cannot be 0')
             raise Exception('Analysis has been terminated')
         for key in material_paras.keys():
             if not isinstance(key, str):
-                logger.error(f'The material parameter key should be a string: {key}')
+                LOGGER.error(f'The material parameter key should be a string: {key}')
                 raise Exception('Analysis has been terminated')
         if not isinstance(damping, (int, float)) and damping < 0:
-            logger.error(f'The damping ratio should be a non-negative number: {damping}')
+            LOGGER.error(f'The damping ratio should be a non-negative number: {damping}')
             raise Exception('Analysis has been terminated')
         if not isinstance(target_ductility, (int, float)) and target_ductility <= 0:
-            logger.error(f'The target ductility should be a positive number: {target_ductility}')
+            LOGGER.error(f'The target ductility should be a positive number: {target_ductility}')
             raise Exception('Analysis has been terminated')
         if not isinstance(max_iter, int) and max_iter <= 1:
-            logger.error(f'The maximum iteration should be a positive integer greater than 1: {max_iter}')
+            LOGGER.error(f'The maximum iteration should be a positive integer greater than 1: {max_iter}')
             raise Exception('Analysis has been terminated')
         if not isinstance(thetaD, (int, float)) and thetaD < 0:
-            logger.error(f'The P-Delta coefficient should be a non-negative number: {thetaD}')
+            LOGGER.error(f'The P-Delta coefficient should be a non-negative number: {thetaD}')
             raise Exception('Analysis has been terminated')
         if not isinstance(mass, (int, float)) and mass <= 0:
-            logger.error(f'The mass should be a positive number: {mass}')
+            LOGGER.error(f'The mass should be a positive number: {mass}')
             raise Exception('Analysis has been terminated')
         if not isinstance(height, (int, float)) and height <= 0:
-            logger.error(f'The height should be a positive number: {height}')
+            LOGGER.error(f'The height should be a positive number: {height}')
             raise Exception('Analysis has been terminated')
         if not isinstance(fv_duration, (int, float)) and fv_duration < 0:
-            logger.error(f'The free vibration duration should be a non-negative number: {fv_duration}')
+            LOGGER.error(f'The free vibration duration should be a non-negative number: {fv_duration}')
             raise Exception('Analysis has been terminated')
         if isclose(damping, 0.05):
             self.damping_equal_5pct = True
@@ -285,14 +278,14 @@ class NRSA:
         self.max_iter = max_iter
         self.height = height
         self.fv_duration = fv_duration
-        logger.success('Analysis settings have been set')
+        LOGGER.success('Analysis settings have been set')
 
     def running_settings(self,
             parallel: int=1,
             auto_quit: bool=False,
             hidden_prints: bool=True,
             show_monitor: bool=True,
-            solver: Literal['auto', 'newmark', 'ops']='auto',
+            solver: SOLVER_TYPING='auto',
             **kwargs
         ):
         """运行设置
@@ -302,15 +295,17 @@ class NRSA:
             auto_quit (bool, optional): 运行结束后是否自动关闭监控器
             hidden_prints (bool, optional): 是否隐藏求解过程中的输出，默认为True
             show_monitor (bool, optional): 是否显示监控器，默认为True
-            solver (Literal['auto', 'newmark', 'ops'], optional): 求解器类型，默认为'auto'，
-              即按照'newmark'->'ops'的顺序选择，不收敛则向后切换
+            solver (SOLVER_TYPING, optional): 求解器类型，默认为'auto'，
+              即按照'Newmark-Newton'->'OPS'的顺序选择，不收敛则向后切换
             **kwargs: 用于输入到求解器的参数
         """
         if not isinstance(parallel, int) and parallel < 0:
-            logger.error(f'The parallel parameter should be a non-negative integer: {parallel}')
+            LOGGER.error(f'The parallel parameter should be a non-negative integer: {parallel}')
             raise Exception('Analysis has been terminated')
         if parallel == 0:
             parallel = multiprocessing.cpu_count()
+        if solver not in AVAILABLE_SOLVERS:
+            raise ValueError(f'Solver should be one of {AVAILABLE_SOLVERS}')
         self.parallel = parallel
         self.gm_batch_size = 1  # 每个进程处理的地震动数量，暂时不支持
         self.auto_quit = auto_quit
@@ -378,7 +373,7 @@ class NRSA:
         """检查路径名是否包含中文字符"""
         for path in paths:
             if re.search('[！@#￥%……&*（）—【】：；“‘”’《》，。？、\u4e00-\u9fff]', path.as_posix()):
-                logger.error(f'Chineses or full-width characters are not allowed in path names: {path.as_posix()}')
+                LOGGER.error(f'Chineses or full-width characters are not allowed in path names: {path.as_posix()}')
                 return False
         return True
 
@@ -400,13 +395,13 @@ class NRSA:
                     if res2 == QMessageBox.Yes:
                         return True
                     else:
-                        logger.warning('Analysis has been terminated')
+                        LOGGER.warning('Analysis has been terminated')
                         return False
             elif folder_exists == 'overwrite':
                 return True
             elif folder_exists == 'delete':
                 shutil.rmtree(folder)
-                logger.warning(f'"{folder.as_posix()}" exists, has been deleted')
+                LOGGER.warning(f'"{folder.as_posix()}" exists, has been deleted')
                 os.makedirs(folder)
                 return True
         else:

@@ -1737,7 +1737,7 @@ typedef npy_double __pyx_t_5numpy_double_t;
 typedef npy_longdouble __pyx_t_5numpy_longdouble_t;
 
 /* "newmark.pyx":12
- * import openseespy.opensees as ops
+ * from . import opensees as ops
  * 
  * ctypedef cnp.float64_t DTYPE_t             # <<<<<<<<<<<<<<
  * ctypedef cnp.int64_t INT_t
@@ -2374,6 +2374,12 @@ static PyObject *__Pyx_Import(PyObject *name, PyObject *from_list, int level);
 static PyObject *__Pyx_ImportDottedModule(PyObject *name, PyObject *parts_tuple);
 static PyObject *__Pyx_ImportDottedModule_WalkParts(PyObject *module, PyObject *name, PyObject *parts_tuple);
 
+/* ListPack.proto */
+static PyObject *__Pyx_PyList_Pack(Py_ssize_t n, ...);
+
+/* ImportFrom.proto */
+static PyObject* __Pyx_ImportFrom(PyObject* module, PyObject* name);
+
 /* FixUpExtensionType.proto */
 static CYTHON_INLINE int __Pyx_fix_up_extension_type_from_spec(PyType_Spec *spec, PyTypeObject *type);
 
@@ -2825,7 +2831,9 @@ static const char __pyx_k_Ec[] = "Ec";
 static const char __pyx_k_Ev[] = "Ev";
 static const char __pyx_k__2[] = " > ";
 static const char __pyx_k__3[] = ").";
-static const char __pyx_k__4[] = "?";
+static const char __pyx_k__4[] = "";
+static const char __pyx_k__5[] = ".";
+static const char __pyx_k__6[] = "?";
 static const char __pyx_k_ag[] = "ag";
 static const char __pyx_k_dt[] = "dt";
 static const char __pyx_k_du[] = "du";
@@ -2900,7 +2908,6 @@ static const char __pyx_k_ValueError[] = "ValueError";
 static const char __pyx_k_getTangent[] = "getTangent";
 static const char __pyx_k_iter_count[] = "iter_count";
 static const char __pyx_k_iterations[] = " iterations (";
-static const char __pyx_k_openseespy[] = "openseespy";
 static const char __pyx_k_ImportError[] = "ImportError";
 static const char __pyx_k_commitState[] = "commitState";
 static const char __pyx_k_fv_duration[] = "fv_duration";
@@ -2920,7 +2927,6 @@ static const char __pyx_k_maxAnalysis_disp[] = "maxAnalysis_disp";
 static const char __pyx_k_uniaxialMaterial[] = "uniaxialMaterial";
 static const char __pyx_k_asyncio_coroutines[] = "asyncio.coroutines";
 static const char __pyx_k_cline_in_traceback[] = "cline_in_traceback";
-static const char __pyx_k_openseespy_opensees[] = "openseespy.opensees";
 static const char __pyx_k_testUniaxialMaterial[] = "testUniaxialMaterial";
 static const char __pyx_k_Invalid_material_reference[] = "Invalid material reference: ";
 static const char __pyx_k_Newton_Raphson_iteration_failed[] = "Newton-Raphson iteration failed after ";
@@ -2985,7 +2991,6 @@ typedef struct {
   PyTypeObject *__pyx_ptype_5numpy_character;
   PyTypeObject *__pyx_ptype_5numpy_ufunc;
   __Pyx_CachedCFunction __pyx_umethod_PyDict_Type_pop;
-  PyObject *__pyx_tuple[1];
   PyObject *__pyx_codeobj_tab[1];
   PyObject *__pyx_string_tab[115];
   PyObject *__pyx_int_1;
@@ -3046,70 +3051,70 @@ static __pyx_mstatetype * const __pyx_mstate_global = &__pyx_mstate_global_stati
 #define __pyx_n_u_ValueError __pyx_string_tab[19]
 #define __pyx_kp_u__2 __pyx_string_tab[20]
 #define __pyx_kp_u__3 __pyx_string_tab[21]
-#define __pyx_kp_u__4 __pyx_string_tab[22]
-#define __pyx_n_u_a_abs __pyx_string_tab[23]
-#define __pyx_n_u_a_next __pyx_string_tab[24]
-#define __pyx_n_u_a_prev __pyx_string_tab[25]
-#define __pyx_kp_u_add_note __pyx_string_tab[26]
-#define __pyx_n_u_ag __pyx_string_tab[27]
-#define __pyx_n_u_ag_scaled __pyx_string_tab[28]
-#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[29]
-#define __pyx_n_u_beta __pyx_string_tab[30]
-#define __pyx_n_u_c __pyx_string_tab[31]
-#define __pyx_n_u_cline_in_traceback __pyx_string_tab[32]
-#define __pyx_n_u_collapse __pyx_string_tab[33]
-#define __pyx_n_u_collapse_disp __pyx_string_tab[34]
-#define __pyx_n_u_collapse_flag __pyx_string_tab[35]
-#define __pyx_n_u_commitState __pyx_string_tab[36]
-#define __pyx_n_u_converge __pyx_string_tab[37]
-#define __pyx_n_u_current_time __pyx_string_tab[38]
-#define __pyx_n_u_delta __pyx_string_tab[39]
-#define __pyx_n_u_display_info __pyx_string_tab[40]
-#define __pyx_n_u_dt __pyx_string_tab[41]
-#define __pyx_n_u_du __pyx_string_tab[42]
-#define __pyx_n_u_duration __pyx_string_tab[43]
-#define __pyx_n_u_error __pyx_string_tab[44]
-#define __pyx_n_u_findall __pyx_string_tab[45]
-#define __pyx_n_u_func __pyx_string_tab[46]
-#define __pyx_n_u_fv_duration __pyx_string_tab[47]
-#define __pyx_n_u_g __pyx_string_tab[48]
-#define __pyx_n_u_gamma __pyx_string_tab[49]
-#define __pyx_n_u_getStress __pyx_string_tab[50]
-#define __pyx_n_u_getTangent __pyx_string_tab[51]
-#define __pyx_n_u_h __pyx_string_tab[52]
-#define __pyx_n_u_i __pyx_string_tab[53]
-#define __pyx_n_u_initializing __pyx_string_tab[54]
-#define __pyx_n_u_is_coroutine __pyx_string_tab[55]
-#define __pyx_n_u_items __pyx_string_tab[56]
-#define __pyx_n_u_iter_count __pyx_string_tab[57]
-#define __pyx_kp_u_iterations __pyx_string_tab[58]
-#define __pyx_n_u_k_t __pyx_string_tab[59]
-#define __pyx_n_u_kwargs __pyx_string_tab[60]
-#define __pyx_n_u_m __pyx_string_tab[61]
-#define __pyx_n_u_main __pyx_string_tab[62]
-#define __pyx_n_u_matTag __pyx_string_tab[63]
-#define __pyx_n_u_matType __pyx_string_tab[64]
-#define __pyx_n_u_mat_tangent __pyx_string_tab[65]
-#define __pyx_n_u_materials __pyx_string_tab[66]
-#define __pyx_n_u_maxAccel __pyx_string_tab[67]
-#define __pyx_n_u_maxAnalysis_disp __pyx_string_tab[68]
-#define __pyx_n_u_maxDisp __pyx_string_tab[69]
-#define __pyx_n_u_maxReaction __pyx_string_tab[70]
-#define __pyx_n_u_maxVel __pyx_string_tab[71]
-#define __pyx_n_u_max_iter __pyx_string_tab[72]
-#define __pyx_n_u_module __pyx_string_tab[73]
-#define __pyx_n_u_name __pyx_string_tab[74]
-#define __pyx_n_u_newmark __pyx_string_tab[75]
-#define __pyx_kp_u_newmark_pyx __pyx_string_tab[76]
-#define __pyx_n_u_newmark_solver __pyx_string_tab[77]
-#define __pyx_n_u_np __pyx_string_tab[78]
-#define __pyx_n_u_numpy __pyx_string_tab[79]
-#define __pyx_kp_u_numpy_core_multiarray_failed_to __pyx_string_tab[80]
-#define __pyx_kp_u_numpy_core_umath_failed_to_impor __pyx_string_tab[81]
-#define __pyx_n_u_omega __pyx_string_tab[82]
-#define __pyx_n_u_opensees __pyx_string_tab[83]
-#define __pyx_n_u_openseespy __pyx_string_tab[84]
-#define __pyx_n_u_openseespy_opensees __pyx_string_tab[85]
+#define __pyx_n_u__4 __pyx_string_tab[22]
+#define __pyx_kp_u__5 __pyx_string_tab[23]
+#define __pyx_kp_u__6 __pyx_string_tab[24]
+#define __pyx_n_u_a_abs __pyx_string_tab[25]
+#define __pyx_n_u_a_next __pyx_string_tab[26]
+#define __pyx_n_u_a_prev __pyx_string_tab[27]
+#define __pyx_kp_u_add_note __pyx_string_tab[28]
+#define __pyx_n_u_ag __pyx_string_tab[29]
+#define __pyx_n_u_ag_scaled __pyx_string_tab[30]
+#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[31]
+#define __pyx_n_u_beta __pyx_string_tab[32]
+#define __pyx_n_u_c __pyx_string_tab[33]
+#define __pyx_n_u_cline_in_traceback __pyx_string_tab[34]
+#define __pyx_n_u_collapse __pyx_string_tab[35]
+#define __pyx_n_u_collapse_disp __pyx_string_tab[36]
+#define __pyx_n_u_collapse_flag __pyx_string_tab[37]
+#define __pyx_n_u_commitState __pyx_string_tab[38]
+#define __pyx_n_u_converge __pyx_string_tab[39]
+#define __pyx_n_u_current_time __pyx_string_tab[40]
+#define __pyx_n_u_delta __pyx_string_tab[41]
+#define __pyx_n_u_display_info __pyx_string_tab[42]
+#define __pyx_n_u_dt __pyx_string_tab[43]
+#define __pyx_n_u_du __pyx_string_tab[44]
+#define __pyx_n_u_duration __pyx_string_tab[45]
+#define __pyx_n_u_error __pyx_string_tab[46]
+#define __pyx_n_u_findall __pyx_string_tab[47]
+#define __pyx_n_u_func __pyx_string_tab[48]
+#define __pyx_n_u_fv_duration __pyx_string_tab[49]
+#define __pyx_n_u_g __pyx_string_tab[50]
+#define __pyx_n_u_gamma __pyx_string_tab[51]
+#define __pyx_n_u_getStress __pyx_string_tab[52]
+#define __pyx_n_u_getTangent __pyx_string_tab[53]
+#define __pyx_n_u_h __pyx_string_tab[54]
+#define __pyx_n_u_i __pyx_string_tab[55]
+#define __pyx_n_u_initializing __pyx_string_tab[56]
+#define __pyx_n_u_is_coroutine __pyx_string_tab[57]
+#define __pyx_n_u_items __pyx_string_tab[58]
+#define __pyx_n_u_iter_count __pyx_string_tab[59]
+#define __pyx_kp_u_iterations __pyx_string_tab[60]
+#define __pyx_n_u_k_t __pyx_string_tab[61]
+#define __pyx_n_u_kwargs __pyx_string_tab[62]
+#define __pyx_n_u_m __pyx_string_tab[63]
+#define __pyx_n_u_main __pyx_string_tab[64]
+#define __pyx_n_u_matTag __pyx_string_tab[65]
+#define __pyx_n_u_matType __pyx_string_tab[66]
+#define __pyx_n_u_mat_tangent __pyx_string_tab[67]
+#define __pyx_n_u_materials __pyx_string_tab[68]
+#define __pyx_n_u_maxAccel __pyx_string_tab[69]
+#define __pyx_n_u_maxAnalysis_disp __pyx_string_tab[70]
+#define __pyx_n_u_maxDisp __pyx_string_tab[71]
+#define __pyx_n_u_maxReaction __pyx_string_tab[72]
+#define __pyx_n_u_maxVel __pyx_string_tab[73]
+#define __pyx_n_u_max_iter __pyx_string_tab[74]
+#define __pyx_n_u_module __pyx_string_tab[75]
+#define __pyx_n_u_name __pyx_string_tab[76]
+#define __pyx_n_u_newmark __pyx_string_tab[77]
+#define __pyx_kp_u_newmark_pyx __pyx_string_tab[78]
+#define __pyx_n_u_newmark_solver __pyx_string_tab[79]
+#define __pyx_n_u_np __pyx_string_tab[80]
+#define __pyx_n_u_numpy __pyx_string_tab[81]
+#define __pyx_kp_u_numpy_core_multiarray_failed_to __pyx_string_tab[82]
+#define __pyx_kp_u_numpy_core_umath_failed_to_impor __pyx_string_tab[83]
+#define __pyx_n_u_omega __pyx_string_tab[84]
+#define __pyx_n_u_opensees __pyx_string_tab[85]
 #define __pyx_n_u_ops __pyx_string_tab[86]
 #define __pyx_n_u_paras __pyx_string_tab[87]
 #define __pyx_n_u_paras_processed __pyx_string_tab[88]
@@ -3175,7 +3180,6 @@ static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_ptype_5numpy_flexible);
   Py_CLEAR(clear_module_state->__pyx_ptype_5numpy_character);
   Py_CLEAR(clear_module_state->__pyx_ptype_5numpy_ufunc);
-  for (int i=0; i<1; ++i) { Py_CLEAR(clear_module_state->__pyx_tuple[i]); }
   for (int i=0; i<1; ++i) { Py_CLEAR(clear_module_state->__pyx_codeobj_tab[i]); }
   for (int i=0; i<115; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
   Py_CLEAR(clear_module_state->__pyx_int_1);
@@ -3216,7 +3220,6 @@ static CYTHON_SMALL_CODE int __pyx_m_traverse(PyObject *m, visitproc visit, void
   Py_VISIT(traverse_module_state->__pyx_ptype_5numpy_flexible);
   Py_VISIT(traverse_module_state->__pyx_ptype_5numpy_character);
   Py_VISIT(traverse_module_state->__pyx_ptype_5numpy_ufunc);
-  for (int i=0; i<1; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_tuple[i]); }
   for (int i=0; i<1; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_codeobj_tab[i]); }
   for (int i=0; i<115; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
   __Pyx_VISIT_CONST(traverse_module_state->__pyx_int_1);
@@ -7248,7 +7251,7 @@ __Pyx_RefNannySetupContext("PyInit_newmark", 0);
  * cimport cython
  * from libc.math cimport fabs, fmax
  * import re             # <<<<<<<<<<<<<<
- * import openseespy.opensees as ops
+ * from . import opensees as ops
  * 
 */
   __pyx_t_2 = __Pyx_ImportDottedModule(__pyx_mstate_global->__pyx_n_u_re, NULL); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 9, __pyx_L1_error)
@@ -7259,14 +7262,20 @@ __Pyx_RefNannySetupContext("PyInit_newmark", 0);
   /* "newmark.pyx":10
  * from libc.math cimport fabs, fmax
  * import re
- * import openseespy.opensees as ops             # <<<<<<<<<<<<<<
+ * from . import opensees as ops             # <<<<<<<<<<<<<<
  * 
  * ctypedef cnp.float64_t DTYPE_t
 */
-  __pyx_t_2 = __Pyx_ImportDottedModule(__pyx_mstate_global->__pyx_n_u_openseespy_opensees, __pyx_mstate_global->__pyx_tuple[0]); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 10, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyList_Pack(1, __pyx_mstate_global->__pyx_n_u_opensees); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 10, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
+  __pyx_t_3 = __Pyx_Import(__pyx_mstate_global->__pyx_n_u__4, __pyx_t_2, 1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 10, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __pyx_t_2 = __Pyx_ImportFrom(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_opensees); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 10, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ops, __pyx_t_2) < 0) __PYX_ERR(0, 10, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
 
   /* "newmark.pyx":52
  *     double zeta,
@@ -7275,8 +7284,8 @@ __Pyx_RefNannySetupContext("PyInit_newmark", 0);
  *     double collapse_disp=1e14,
  *     double maxAnalysis_disp=1e15,
 */
-  __pyx_t_2 = PyFloat_FromDouble(((double)9800.0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 52, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_2);
+  __pyx_t_3 = PyFloat_FromDouble(((double)9800.0)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 52, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
 
   /* "newmark.pyx":53
  *     double m,
@@ -7285,8 +7294,8 @@ __Pyx_RefNannySetupContext("PyInit_newmark", 0);
  *     double maxAnalysis_disp=1e15,
  *     double tol=1e-5,
 */
-  __pyx_t_3 = PyFloat_FromDouble(((double)1e14)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 53, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_t_2 = PyFloat_FromDouble(((double)1e14)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 53, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_2);
 
   /* "newmark.pyx":54
  *     double g=9800,
@@ -7355,10 +7364,10 @@ __Pyx_RefNannySetupContext("PyInit_newmark", 0);
  * @cython.wraparound(False)
  * def newmark_solver(
 */
-  __pyx_t_10 = PyTuple_Pack(8, __pyx_t_2, __pyx_t_3, __pyx_t_4, __pyx_t_5, __pyx_t_6, __pyx_t_7, __pyx_t_8, __pyx_t_9); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 38, __pyx_L1_error)
+  __pyx_t_10 = PyTuple_Pack(8, __pyx_t_3, __pyx_t_2, __pyx_t_4, __pyx_t_5, __pyx_t_6, __pyx_t_7, __pyx_t_8, __pyx_t_9); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 38, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
-  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
@@ -7470,7 +7479,9 @@ static const __Pyx_StringTabEntry __pyx_string_tab[] = {
   {__pyx_k_ValueError, sizeof(__pyx_k_ValueError), 0, 1, 1}, /* PyObject cname: __pyx_n_u_ValueError */
   {__pyx_k__2, sizeof(__pyx_k__2), 0, 1, 0}, /* PyObject cname: __pyx_kp_u__2 */
   {__pyx_k__3, sizeof(__pyx_k__3), 0, 1, 0}, /* PyObject cname: __pyx_kp_u__3 */
-  {__pyx_k__4, sizeof(__pyx_k__4), 0, 1, 0}, /* PyObject cname: __pyx_kp_u__4 */
+  {__pyx_k__4, sizeof(__pyx_k__4), 0, 1, 1}, /* PyObject cname: __pyx_n_u__4 */
+  {__pyx_k__5, sizeof(__pyx_k__5), 0, 1, 0}, /* PyObject cname: __pyx_kp_u__5 */
+  {__pyx_k__6, sizeof(__pyx_k__6), 0, 1, 0}, /* PyObject cname: __pyx_kp_u__6 */
   {__pyx_k_a_abs, sizeof(__pyx_k_a_abs), 0, 1, 1}, /* PyObject cname: __pyx_n_u_a_abs */
   {__pyx_k_a_next, sizeof(__pyx_k_a_next), 0, 1, 1}, /* PyObject cname: __pyx_n_u_a_next */
   {__pyx_k_a_prev, sizeof(__pyx_k_a_prev), 0, 1, 1}, /* PyObject cname: __pyx_n_u_a_prev */
@@ -7532,8 +7543,6 @@ static const __Pyx_StringTabEntry __pyx_string_tab[] = {
   {__pyx_k_numpy_core_umath_failed_to_impor, sizeof(__pyx_k_numpy_core_umath_failed_to_impor), 0, 1, 0}, /* PyObject cname: __pyx_kp_u_numpy_core_umath_failed_to_impor */
   {__pyx_k_omega, sizeof(__pyx_k_omega), 0, 1, 1}, /* PyObject cname: __pyx_n_u_omega */
   {__pyx_k_opensees, sizeof(__pyx_k_opensees), 0, 1, 1}, /* PyObject cname: __pyx_n_u_opensees */
-  {__pyx_k_openseespy, sizeof(__pyx_k_openseespy), 0, 1, 1}, /* PyObject cname: __pyx_n_u_openseespy */
-  {__pyx_k_openseespy_opensees, sizeof(__pyx_k_openseespy_opensees), 0, 1, 1}, /* PyObject cname: __pyx_n_u_openseespy_opensees */
   {__pyx_k_ops, sizeof(__pyx_k_ops), 0, 1, 1}, /* PyObject cname: __pyx_n_u_ops */
   {__pyx_k_paras, sizeof(__pyx_k_paras), 0, 1, 1}, /* PyObject cname: __pyx_n_u_paras */
   {__pyx_k_paras_processed, sizeof(__pyx_k_paras_processed), 0, 1, 1}, /* PyObject cname: __pyx_n_u_paras_processed */
@@ -7586,22 +7595,8 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
   __Pyx_RefNannyDeclarations
   CYTHON_UNUSED_VAR(__pyx_mstate);
   __Pyx_RefNannySetupContext("__Pyx_InitCachedConstants", 0);
-
-  /* "newmark.pyx":10
- * from libc.math cimport fabs, fmax
- * import re
- * import openseespy.opensees as ops             # <<<<<<<<<<<<<<
- * 
- * ctypedef cnp.float64_t DTYPE_t
-*/
-  __pyx_mstate_global->__pyx_tuple[0] = PyTuple_Pack(2, __pyx_mstate_global->__pyx_n_u_openseespy, __pyx_mstate_global->__pyx_n_u_opensees); if (unlikely(!__pyx_mstate_global->__pyx_tuple[0])) __PYX_ERR(0, 10, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[0]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[0]);
   __Pyx_RefNannyFinishContext();
   return 0;
-  __pyx_L1_error:;
-  __Pyx_RefNannyFinishContext();
-  return -1;
 }
 /* #### Code section: init_constants ### */
 
@@ -11004,6 +10999,64 @@ static PyObject *__Pyx_ImportDottedModule(PyObject *name, PyObject *parts_tuple)
     return __Pyx__ImportDottedModule(name, parts_tuple);
 }
 
+/* ListPack */
+  static PyObject *__Pyx_PyList_Pack(Py_ssize_t n, ...) {
+    va_list va;
+    PyObject *l = PyList_New(n);
+    va_start(va, n);
+    if (unlikely(!l)) goto end;
+    for (Py_ssize_t i=0; i<n; ++i) {
+        PyObject *arg = va_arg(va, PyObject*);
+        Py_INCREF(arg);
+        if (__Pyx_PyList_SET_ITEM(l, i, arg) != (0)) {
+            Py_CLEAR(l);
+            goto end;
+        }
+    }
+    end:
+    va_end(va);
+    return l;
+}
+
+/* ImportFrom */
+  static PyObject* __Pyx_ImportFrom(PyObject* module, PyObject* name) {
+    PyObject* value = __Pyx_PyObject_GetAttrStr(module, name);
+    if (unlikely(!value) && PyErr_ExceptionMatches(PyExc_AttributeError)) {
+        const char* module_name_str = 0;
+        PyObject* module_name = 0;
+        PyObject* module_dot = 0;
+        PyObject* full_name = 0;
+        PyErr_Clear();
+        module_name_str = PyModule_GetName(module);
+        if (unlikely(!module_name_str)) { goto modbad; }
+        module_name = PyUnicode_FromString(module_name_str);
+        if (unlikely(!module_name)) { goto modbad; }
+        module_dot = PyUnicode_Concat(module_name, __pyx_mstate_global->__pyx_kp_u__5);
+        if (unlikely(!module_dot)) { goto modbad; }
+        full_name = PyUnicode_Concat(module_dot, name);
+        if (unlikely(!full_name)) { goto modbad; }
+        #if (CYTHON_COMPILING_IN_PYPY && PYPY_VERSION_NUM  < 0x07030400) ||\
+                CYTHON_COMPILING_IN_GRAAL
+        {
+            PyObject *modules = PyImport_GetModuleDict();
+            if (unlikely(!modules))
+                goto modbad;
+            value = PyObject_GetItem(modules, full_name);
+        }
+        #else
+        value = PyImport_GetModule(full_name);
+        #endif
+      modbad:
+        Py_XDECREF(full_name);
+        Py_XDECREF(module_dot);
+        Py_XDECREF(module_name);
+    }
+    if (unlikely(!value)) {
+        PyErr_Format(PyExc_ImportError, "cannot import name %S", name);
+    }
+    return value;
+}
+
 /* FixUpExtensionType */
   static int __Pyx_fix_up_extension_type_from_spec(PyType_Spec *spec, PyTypeObject *type) {
 #if PY_VERSION_HEX > 0x030900B1 || CYTHON_COMPILING_IN_LIMITED_API
@@ -13430,7 +13483,7 @@ __Pyx_PyType_GetFullyQualifiedName(PyTypeObject* tp)
         result = name;
         name = NULL;
     } else {
-        result = __Pyx_NewRef(__pyx_mstate_global->__pyx_kp_u__4);
+        result = __Pyx_NewRef(__pyx_mstate_global->__pyx_kp_u__6);
     }
     goto done;
 }

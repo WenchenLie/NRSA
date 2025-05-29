@@ -6,21 +6,9 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-sys.path.append(str(Path(__file__).parent.parent))
-from loguru import logger
+from .config import LOGGER
 from PyQt5.QtWidgets import QMessageBox
 from scipy.integrate import cumulative_trapezoid
-
-
-logger.remove()
-logger.add(
-    sink=sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
-    level="DEBUG"
-)
-LOGGER = logger
 
 
 def check_file_exists(path: str | Path):
@@ -37,14 +25,12 @@ def check_file_exists(path: str | Path):
 def creat_folder(
         path: Path | str,
         exists: Literal['overwrite', 'delete', 'ask']='ask',
-        logger=None
-        ) -> bool:
+    ) -> bool:
     """创建文件夹
 
     Args:
         path (Path): 路径
         exists (str, optional): 如果文件夹存在，如何处理('overwrite', 'delete', or 'ask')
-        logger (logger, optional): 日志
 
     Returns:
         bool: True - Go on, False - Quit.
@@ -63,16 +49,13 @@ def creat_folder(
             if res1 == QMessageBox.Yes:
                 shutil.rmtree(path)
                 os.makedirs(path)
-                if logger:
-                    logger.warning(f'已删除并新建{path}')
-                return True
+                LOGGER.warning(f'已删除并新建{path}')
             else:
                 res2 = QMessageBox.question(None, '警告', f'是否覆盖数据？')
                 if res2 == QMessageBox.Yes:
                     return True
                 else:
-                    if logger:
-                        logger.warning('已退出分析')
+                    LOGGER.warning('已退出分析')
                     return False
     return True
 
@@ -130,8 +113,7 @@ class SDOFHelper:
 
 
 def gradient_descent(a, b, init_SF, learning_rate, num_iterations):
-    """梯度下降法
-    """
+    """梯度下降法"""
     f = init_SF
     for _ in range(num_iterations):
         error = a * f - b

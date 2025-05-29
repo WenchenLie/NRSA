@@ -1,20 +1,19 @@
 import os, json
 import time
 import traceback
+import multiprocessing
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 
-import multiprocessing
+from .config import SOLVER_TYPING
 from .utils import SDOFHelper, SDOFError
 from .ops_solver import ops_solver
 from .newmark import newmark_solver
 
-
-SOLVER_TYPES = Literal['ops', 'newmark']
 
 def constant_strength_analysis(*args, **kwargs):
     queue: multiprocessing.Queue = args[-4]
@@ -42,7 +41,7 @@ def _constant_strength_analysis(
     dt: float,
     fv_duration: float,
     get_Sa: interp1d,
-    solver: SOLVER_TYPES,
+    solver: SOLVER_TYPING,
     hidden_prints: bool,
     queue: multiprocessing.Queue,
     stop_event,
@@ -100,9 +99,9 @@ def _constant_strength_analysis(
                     res: dict = solver_func(*solver_paras, **kwargs)
                     if res['converge']:
                         break 
-            elif solver == 'ops':
+            elif solver == 'OPS':
                 res: dict = ops_solver(*solver_paras, **kwargs)
-            elif solver == 'newmark':
+            elif solver == 'Newmark-Newton':
                 res: dict = newmark_solver(*solver_paras, **kwargs)
             else:
                 raise SDOFError(f'Wrong solver name: {solver}')

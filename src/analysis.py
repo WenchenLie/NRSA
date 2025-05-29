@@ -6,18 +6,11 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from loguru import logger
 
+from .config import LOGGER
 from .NRSA import NRSA
 from .spectrum import spectrum
 
-
-logger.remove()
-logger.add(
-    sink=sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <red>|</red> <level>{level}</level> <red>|</red> <level>{message}</level>",
-    level="DEBUG"
-)
 
 class ConstantDuctilityAnalysis(NRSA):
     def __init__(self, job_name: str, cls_cache: bool=False):
@@ -135,7 +128,7 @@ class ConstantStrengthAnalysis(NRSA):
                 Sa_avg = self.geometric_mean(Sa_i)
                 sf = Sa_avg_code / Sa_avg
                 if is_print:
-                    logger.info(f'Sa,avg = {Sa_avg_code}')
+                    LOGGER.info(f'Sa,avg = {Sa_avg_code}')
                     is_print = False
             elif method == 'i':
                 Ta, Sa_target = para
@@ -146,7 +139,7 @@ class ConstantStrengthAnalysis(NRSA):
                 Sa_gm_avg = self.geometric_mean(RSA[(Ta <= self.T) & (self.T <= Tb)])
                 sf = Sa_target / Sa_gm_avg
             else:
-                logger.error('The `method` parameter is incorrect!')
+                LOGGER.error('The `method` parameter is incorrect!')
                 raise ValueError('The `method` parameter is incorrect!')
             scaled_GM_RSA[:, idx] = RSA * sf
             scaled_GM_RSV[:, idx] = RSV * sf
@@ -160,7 +153,7 @@ class ConstantStrengthAnalysis(NRSA):
                 sf_dict[gm_name] = sf
             file_path = (self.wkdir / 'GM_scaling_factors.json').as_posix()
             json.dump(sf_dict, open(file_path, 'w'), indent=4)
-            logger.info(f'Scaling factors have been saved to {file_path}')
+            LOGGER.info(f'Scaling factors have been saved to {file_path}')
         if save_scaled_spec:
             data_RSA = np.zeros((len(self.T), self.GM_N + 1))
             data_RSV = np.zeros((len(self.T), self.GM_N + 1))
@@ -205,21 +198,21 @@ class ConstantStrengthAnalysis(NRSA):
             stat_A.to_csv(folder / 'Scaled_RSA_stat.csv', index=False)
             stat_V.to_csv(folder / 'Scaled_RSV_stat.csv', index=False)
             stat_D.to_csv(folder / 'Scaled_RSD_stat.csv', index=False)
-            logger.info(f'Scaled 5%-damping spectra have been saved to {folder.as_posix()}')
+            LOGGER.info(f'Scaled 5%-damping spectra have been saved to {folder.as_posix()}')
         plt.figure(figsize=(15, 4))
         plt.subplot(131)
         if method == 'a':
-            plt.scatter(0, Sa_code[0], color='red', zorder=99999)
+            plt.scatter(0, Sa_code[0], color='blue', zorder=99999)
         elif method == 'b':
-            plt.scatter(T0, self.get_y(T_code, Sa_code, T0), color='red', zorder=99999)
+            plt.scatter(T0, self.get_y(T_code, Sa_code, T0), color='blue', zorder=99999)
         elif method == 'c':
-            plt.scatter(para, [self.get_y(T_code, Sa_code, para[0]), self.get_y(T_code, Sa_code, para[1])], color='red', zorder=99999)
+            plt.scatter(para, [self.get_y(T_code, Sa_code, para[0]), self.get_y(T_code, Sa_code, para[1])], color='blue', zorder=99999)
         elif method == 'd':
-            plt.scatter(0, PGA, color='red', zorder=99999)
+            plt.scatter(0, PGA, color='blue', zorder=99999)
         elif method == 'h':
-            plt.scatter(para, [self.get_y(T_code, Sa_code, para[0]), self.get_y(T_code, Sa_code, para[1])], color='red', zorder=99999)
+            plt.scatter(para, [self.get_y(T_code, Sa_code, para[0]), self.get_y(T_code, Sa_code, para[1])], color='blue', zorder=99999)
         elif method == 'i':
-            plt.scatter(para[0], para[1], color='red', zorder=99999)
+            plt.scatter(para[0], para[1], color='blue', zorder=99999)
         for i in range(self.GM_N):
             plt.subplot(131)
             plt.plot(self.T, scaled_GM_RSA[:, i], color='grey')
@@ -282,7 +275,7 @@ class ConstantStrengthAnalysis(NRSA):
     
     def run(self):
         if not self.scaling_finished:
-            logger.warning('Please run `scale_ground_motions` before running analysis!')
+            LOGGER.warning('Please run `scale_ground_motions` before running analysis!')
         super().run()
 
     @staticmethod

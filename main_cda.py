@@ -58,9 +58,10 @@ def material_definition(
 
 
 if __name__ == "__main__":
+    miu_ls = [2, 3, 4]
     time_start = time.time()
     T = np.arange(0.02, 6, 0.02)
-    for miu in [2, 3, 4]:
+    for miu in miu_ls:
         print(f'Running with miu={miu}')
         material_paras: dict[str, float] = {
             'alpha': 0.02
@@ -80,17 +81,17 @@ if __name__ == "__main__":
             thetaD=0  # P-Delta coefficient
         )
         model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
-        model.running_settings(parallel=1, auto_quit=True, hidden_prints=False, show_monitor=True, solver='auto')
+        model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True, solver='auto')
         model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
     
     # Compare with SeismoSignal results
     g = 9800
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 8))
     for i, gm in enumerate(['Northridge', 'Kobe']):
         plt.subplot(2, 1, i + 1)
-        for j, miu in enumerate([2, 3, 4]):
+        for j, miu in enumerate(miu_ls):
             res = pd.read_csv(f'./CDA_results/{miu}/results/{gm}.csv')
             T = res['T']
             a = res['maxAccel'] / g
@@ -103,7 +104,25 @@ if __name__ == "__main__":
         plt.ylabel('Peak Acceleration (g)')
         plt.xlim(0, 6)
         plt.ylim(0)
-        plt.title(f'Ground Motion: {gm}')
+        plt.title(f'Acceleration-Period Curves ({gm})')
+        plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    # Plot R-μ-T curves
+    plt.figure(figsize=(12, 8))
+    for i, gm in enumerate(['Northridge', 'Kobe']):
+        plt.subplot(2, 1, i + 1)
+        for j, miu in enumerate([2, 3, 4]):
+            res = pd.read_csv(f'./CDA_results/{miu}/results/{gm}.csv')
+            T = res['T']
+            R = res['R']
+            plt.plot(T, R, label=f'miu={miu}')
+        plt.xlabel('Period (s)')
+        plt.ylabel('R')
+        plt.xlim(0, 6)
+        plt.ylim(0)
+        plt.title(f'R-μ-T Curves ({gm})')
         plt.legend()
     plt.tight_layout()
     plt.show()

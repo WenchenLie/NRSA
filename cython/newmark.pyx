@@ -7,7 +7,7 @@ cimport numpy as cnp
 cimport cython
 from libc.math cimport fabs, fmax
 import re
-import openseespy.opensees as ops
+from . import opensees as ops
 
 ctypedef cnp.float64_t DTYPE_t
 ctypedef cnp.int64_t INT_t
