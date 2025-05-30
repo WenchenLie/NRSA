@@ -315,7 +315,7 @@ class NRSA:
         self.kwargs = kwargs
 
     def run(self):
-        if not self.damping_equal_5pct:
+        if (not self.damping_equal_5pct) and (self.analysis_type == 'CDA'):
             self._write_unscaled_spectra_with_specific_damping()
         job = {}
         job['Job name'] = self.job_name
