@@ -33,7 +33,7 @@ class Win(QDialog):
     def init_var(self, nrsa: NRSA):
         """实例属性"""
         # 将ConstantDuctilityAnalysis实例的变量作为_Win的实例属性
-        self.T = nrsa.T
+        self.period = nrsa.period
         self.analysis_type = nrsa.analysis_type
         self.start_time = nrsa.start_time
         self.solver = nrsa.solver
@@ -191,7 +191,6 @@ class _Worker(QThread):
     def __init__(self, win: Win) -> None:
         super().__init__()
         self.win = win
-        self.T = win.T
         self.analysis_type = win.analysis_type
         self.start_time = win.start_time
         self.job_name = win.job_name
@@ -372,18 +371,14 @@ class _Worker(QThread):
             R_init = self.R_init
             R_incr = self.R_incr
             if self.analysis_type == 'CDA':
-                # 等延性分析中R值和材料参数通过指定阻尼比的反应谱来确定
+                # 等延性分析中，Sa为采用分析阻尼比的无缩放谱加速度
                 if isinstance(self.unscaled_RSA_spc, dict):
-                    unscaled_RSA = self.unscaled_RSA_spc[self.damping][:, gm_idx]
+                    Sa_ls = self.unscaled_RSA_spc[self.damping][:, gm_idx]
                 else:
-                    unscaled_RSA = self.unscaled_RSA_spc[:, gm_idx]
-                get_Sa = interp1d(self.T, unscaled_RSA, bounds_error=True)
+                    Sa_ls = self.unscaled_RSA_spc[:, gm_idx]
             elif self.analysis_type == 'CSA':
-                # 等强度分析中R值和材料参数通过5%阻尼比的反应谱来确定
-                unscaled_RSA = self.unscaled_RSA_5pct[:, gm_idx]
-                get_Sa = interp1d(self.T, unscaled_RSA * self.GM_indiv_sf[gm_idx], bounds_error=True)
-            get_Sa(periods[0])  # 测试period是否在get_Sa的自变量范围内
-            get_Sa(periods[-1])
+                # 等强度分析中，Sa为采用5%阻尼比的缩放后的谱加速度
+                Sa_ls = self.unscaled_RSA_5pct[:, gm_idx] * self.GM_indiv_sf[gm_idx]
             solver = self.solver
             tol_ductility = self.tol_ductility
             tol_R = self.tol_R
@@ -393,13 +388,13 @@ class _Worker(QThread):
             if self.analysis_type == 'CDA':
                 args = (wkdir, periods, material_function, material_paras, damping, target_ductility,\
                     thetaD, mass, he, gm_name, gm_th, scaling_factor, dt, fv_duration, R_init, R_incr,\
-                    get_Sa, solver, tol_ductility, tol_R, max_iter, hidden_prints, queue, stop_event, pause_event,\
+                    Sa_ls, solver, tol_ductility, tol_R, max_iter, hidden_prints, queue, stop_event, pause_event,\
                     lock)
                 func = constant_ductility_iteration
             elif self.analysis_type == 'CSA':
                 scaling_factor *= self.GM_indiv_sf[gm_idx]
                 args = (wkdir, periods, material_function, material_paras, damping, thetaD, mass, he,\
-                    gm_name, gm_th, scaling_factor, dt, fv_duration, get_Sa, solver, hidden_prints,\
+                    gm_name, gm_th, scaling_factor, dt, fv_duration, Sa_ls, solver, hidden_prints,\
                     queue, stop_event, pause_event, lock)
                 func = constant_strength_analysis
             else:

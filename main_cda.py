@@ -21,7 +21,7 @@ def material_definition(
         Ti (float): 周期点
         m (float): 质量
         R (float): 强度折减系数
-        Sa (float): 弹性谱加速度(g)
+        Sa (float): 弹性谱加速度(g)，等延性分析中，Sa为采用分析阻尼比的无缩放谱加速度
         Args (float): 定义opensees材料所需的相关参数，一般建议取为无量纲系数，并以此计算定义材料所需的直接参数
 
     Returns:
@@ -68,7 +68,7 @@ if __name__ == "__main__":
         }  # Required parameters for material definition, can be customized by user.
         # The length of the dictionary should be the same as the number of arguments in the `material_definition` function.
         # Requires Python 3.7+ to preserve the order of dictionary items.
-        model = ConstantDuctilityAnalysis(f'Test_{miu}', cls_cache=True)
+        model = ConstantDuctilityAnalysis(f'Test_{miu}')
         model.set_working_directory(f'./CDA_results/{miu}', folder_exists='delete')
         model.analysis_settings(T, material_definition, material_paras,
             damping=0.05,  # Damping ratio

@@ -40,7 +40,7 @@ def _constant_strength_analysis(
     scaling_factor: float,
     dt: float,
     fv_duration: float,
-    get_Sa: interp1d,
+    Sa_ls: np.ndarray,
     solver: SOLVER_TYPING,
     hidden_prints: bool,
     queue: multiprocessing.Queue,
@@ -84,7 +84,7 @@ def _constant_strength_analysis(
             queue.put({'e': '中断计算'})
             return
         pause_event.wait()
-        Sa = get_Sa(Ti) # 弹性谱加速度
+        Sa = Sa_ls[idx]  # 弹性谱加速度
         paras = material_paras.values()
         ops_paras, Fy, E = material_function(Ti, mass, Sa, *paras)
         uy = Fy / E

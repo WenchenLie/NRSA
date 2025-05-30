@@ -43,7 +43,7 @@ def _constant_ductility_iteration(
     fv_duration: float,
     R_init: float,
     R_incr: float,
-    get_Sa: interp1d,
+    Sa_ls: np.ndarray,
     solver: SOLVER_TYPING,
     tol_ductility: float,
     tol_R: float,
@@ -111,7 +111,7 @@ def _constant_ductility_iteration(
         miu_prev = 0  # 前一次迭代的延性
         iter_status = False  # 迭代状态
         best_res = None  # 最优结果
-        Sa = get_Sa(Ti)  # 弹性谱加速度
+        Sa = Sa_ls[idx]  # 弹性谱加速度
         for n_iter in range(1, max_iter + 1):
             if stop_event.is_set():
                 queue.put({'e': '中断计算'})

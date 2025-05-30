@@ -2,6 +2,7 @@ import os, sys
 import json
 from math import pi
 from typing import Callable
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,16 +10,15 @@ import matplotlib.pyplot as plt
 
 from .config import LOGGER
 from .NRSA import NRSA
-from .spectrum import spectrum
 
 
 class ConstantDuctilityAnalysis(NRSA):
-    def __init__(self, job_name: str, cls_cache: bool=False):
-        super().__init__(job_name, cls_cache, analysis_type='CDA')
+    def __init__(self, job_name: str, cache_dir: Path | str='cache'):
+        super().__init__(job_name, cache_dir, analysis_type='CDA')
 
 class ConstantStrengthAnalysis(NRSA):
-    def __init__(self, job_name: str, cls_cache: bool=False):
-        super().__init__(job_name, cls_cache, analysis_type='CSA')
+    def __init__(self, job_name: str, cache_dir: Path | str='cache'):
+        super().__init__(job_name, cache_dir, analysis_type='CSA')
 
     def scale_ground_motions(self,
             method: str,
@@ -67,13 +67,13 @@ class ConstantStrengthAnalysis(NRSA):
             Sv_code = Sa_code * T_code / (2 * pi)
             Sd_code = Sa_code * (T_code / (2 * pi)) ** 2
         else:
-            T_code = self.T
+            T_code = self.period
             Sa_code = None
             Sv_code = None
             Sd_code = None
-        scaled_GM_RSA = np.zeros((len(self.T), self.GM_N))
-        scaled_GM_RSV = np.zeros((len(self.T), self.GM_N))
-        scaled_GM_RSD = np.zeros((len(self.T), self.GM_N))
+        scaled_GM_RSA = np.zeros((len(self.period), self.GM_N))
+        scaled_GM_RSV = np.zeros((len(self.period), self.GM_N))
+        scaled_GM_RSD = np.zeros((len(self.period), self.GM_N))
         if method == 'g':
             sf_path = para
             sfs = np.loadtxt(sf_path)
@@ -85,17 +85,17 @@ class ConstantStrengthAnalysis(NRSA):
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')
                 T0 = 0
-                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(self.T, RSA, T0)
+                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(self.period, RSA, T0)
             elif method == 'b':
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')
                 T0 = para
-                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(self.T, RSA, T0)
+                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(self.period, RSA, T0)
             elif method == 'c':
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')
                 T1, T2 = para
-                idx1, idx2 = self.get_y(T_code, RSA, T1, True)[1], self.get_y(self.T, RSA, T2, True)[1]
+                idx1, idx2 = self.get_y(T_code, RSA, T1, True)[1], self.get_y(self.period, RSA, T2, True)[1]
                 init_sf = 1.0  # 初始缩放系数
                 learning_rate = 0.01  # 学习率
                 num_iterations = 40000  # 迭代次数
@@ -120,8 +120,8 @@ class ConstantStrengthAnalysis(NRSA):
                     Ti = T_code[i]
                     if T1 <= Ti <= T2:
                         Sa_i_code.append(Sa_code[i])
-                for i in range(len(self.T)):
-                    Ti = self.T[i]
+                for i in range(len(self.period)):
+                    Ti = self.period[i]
                     if T1 <= Ti <= T2:
                         Sa_i.append(RSA[i])
                 Sa_avg_code = self.geometric_mean(Sa_i_code)
@@ -132,11 +132,11 @@ class ConstantStrengthAnalysis(NRSA):
                     is_print = False
             elif method == 'i':
                 Ta, Sa_target = para
-                Sa_gm = self.get_y(self.T, RSA, Ta)
+                Sa_gm = self.get_y(self.period, RSA, Ta)
                 sf = Sa_target / Sa_gm
             elif method == 'j':
                 Ta, Tb, Sa_target = para
-                Sa_gm_avg = self.geometric_mean(RSA[(Ta <= self.T) & (self.T <= Tb)])
+                Sa_gm_avg = self.geometric_mean(RSA[(Ta <= self.period) & (self.period <= Tb)])
                 sf = Sa_target / Sa_gm_avg
             else:
                 LOGGER.error('The `method` parameter is incorrect!')
@@ -155,19 +155,19 @@ class ConstantStrengthAnalysis(NRSA):
             json.dump(sf_dict, open(file_path, 'w'), indent=4)
             LOGGER.info(f'Scaling factors have been saved to {file_path}')
         if save_scaled_spec:
-            data_RSA = np.zeros((len(self.T), self.GM_N + 1))
-            data_RSV = np.zeros((len(self.T), self.GM_N + 1))
-            data_RSD = np.zeros((len(self.T), self.GM_N + 1))
-            data_RSA[:, 0] = self.T
-            data_RSV[:, 0] = self.T
-            data_RSD[:, 0] = self.T
+            data_RSA = np.zeros((len(self.period), self.GM_N + 1))
+            data_RSV = np.zeros((len(self.period), self.GM_N + 1))
+            data_RSD = np.zeros((len(self.period), self.GM_N + 1))
+            data_RSA[:, 0] = self.period
+            data_RSV[:, 0] = self.period
+            data_RSD[:, 0] = self.period
             data_RSA[:, 1:] = scaled_GM_RSA
             data_RSV[:, 1:] = scaled_GM_RSV
             data_RSD[:, 1:] = scaled_GM_RSD
-            stat_A, stat_V, stat_D = np.zeros((len(self.T), 6)), np.zeros((len(self.T), 6)), np.zeros((len(self.T), 6))
-            stat_A[:, 0] = self.T
-            stat_V[:, 0] = self.T
-            stat_D[:, 0] = self.T
+            stat_A, stat_V, stat_D = np.zeros((len(self.period), 6)), np.zeros((len(self.period), 6)), np.zeros((len(self.period), 6))
+            stat_A[:, 0] = self.period
+            stat_V[:, 0] = self.period
+            stat_D[:, 0] = self.period
             stat_A[:, 1] = np.percentile(data_RSA[:, 1:], 16, axis=1)
             stat_A[:, 2] = np.percentile(data_RSA[:, 1:], 50, axis=1)
             stat_A[:, 3] = np.percentile(data_RSA[:, 1:], 84, axis=1)
@@ -215,11 +215,11 @@ class ConstantStrengthAnalysis(NRSA):
             plt.scatter(para[0], para[1], color='blue', zorder=99999)
         for i in range(self.GM_N):
             plt.subplot(131)
-            plt.plot(self.T, scaled_GM_RSA[:, i], color='grey')
+            plt.plot(self.period, scaled_GM_RSA[:, i], color='grey')
             plt.subplot(132)
-            plt.plot(self.T, scaled_GM_RSV[:, i], color='grey')   
+            plt.plot(self.period, scaled_GM_RSV[:, i], color='grey')   
             plt.subplot(133)
-            plt.plot(self.T, scaled_GM_RSD[:, i], color='grey')    
+            plt.plot(self.period, scaled_GM_RSD[:, i], color='grey')    
         plt.subplot(131)
         if Sa_code is not None:
             plt.plot(T_code, Sa_code, label='Code', color='red')

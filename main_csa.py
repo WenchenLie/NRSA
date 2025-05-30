@@ -19,7 +19,7 @@ def material_definition(
     Args:
         Ti (float): 周期点
         m (float): 质量
-        Sa (float): 弹性谱加速度(g)
+        Sa (float): 弹性谱加速度(g)，等强度分析中，Sa为采用5%阻尼比的缩放后的谱加速度
         Args (float): 定义opensees材料所需的相关参数，一般建议取为无量纲系数，并以此计算定义材料所需的直接参数
 
     Returns:
