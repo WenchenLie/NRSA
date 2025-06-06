@@ -57,15 +57,15 @@ def newmark_solver(
     double beta=0.25,
     double gamma=0.5,
     bint display_info=True,
+    bint record_res=False,
     **kwargs
 ):
     # 初始化参数
     cdef:
         double omega = 2 * np.pi / T
         double c = 2 * m * zeta * omega
-        int NPTS = ag.shape[0]
-        double duration = (NPTS - 1) * dt + fv_duration
-        cnp.ndarray[DTYPE_t, ndim=1] ag_scaled = ag * sf * g
+        cnp.ndarray[DTYPE_t, ndim=1] ag_scaled = np.hstack((ag * sf * g, np.zeros(int(fv_duration / dt))))
+        int NPTS = ag_scaled.shape[0]
         
         # 状态变量
         double current_time = 0.0
@@ -81,6 +81,19 @@ def newmark_solver(
         bint converge = True
         bint collapse_flag = False
         int matTag = 1
+    
+        # 结果时程
+        cnp.ndarray[DTYPE_t, ndim=1] time = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] disp_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] vel_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] accel_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] Ec_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] Ev_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] CD_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] CPD_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] reaction_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] eleForce_th = np.zeros(NPTS, dtype=np.float64)
+        cnp.ndarray[DTYPE_t, ndim=1] dampingForce_th = np.zeros(NPTS, dtype=np.float64)
     
     # 初始化材料模型
     ops.wipe()
@@ -164,20 +177,45 @@ def newmark_solver(
         # 更新状态变量
         u_old = u_next
         F_hys_old, F_ray_old = F_hys, F_ray
-    
-        if (current_time >= duration or (fabs(current_time - duration) < 1e-5)):
-            return {
-                'converge': converge,
-                'collapse': collapse_flag,
-                'maxDisp': maxDisp,
-                'maxVel': maxVel,
-                'maxAccel': maxAccel,
-                'Ec': Ec,
-                'Ev': Ev,
-                'maxReaction': maxReaction,
-                'CD': CD,
-                'CPD': CPD,
-                'resDisp': u_next
-            }
-        if dt + current_time > duration:
-            dt = duration - current_time
+        # 记录时程结果
+        if record_res:
+            time[i] = current_time
+            disp_th[i] = u_next
+            vel_th[i] = v_next
+            accel_th[i] = a_abs
+            Ec_th[i] = Ec
+            Ev_th[i] = Ev
+            CD_th[i] = CD
+            CPD_th[i] = CPD
+            reaction_th[i] = F_total
+            eleForce_th[i] = F_hys
+            dampingForce_th[i] = F_ray
+        if i == NPTS - 1:
+            if not record_res:
+                return {
+                    'converge': converge,
+                    'collapse': collapse_flag,
+                    'maxDisp': maxDisp,
+                    'maxVel': maxVel,
+                    'maxAccel': maxAccel,
+                    'Ec': Ec,
+                    'Ev': Ev,
+                    'maxReaction': maxReaction,
+                    'CD': CD,
+                    'CPD': CPD,
+                    'resDisp': u_next
+                }
+            else:
+                return {
+                    'converge': converge,
+                    'collapse': collapse_flag,
+                    'maxDisp': maxDisp,
+                    'maxVel': maxVel,
+                    'maxAccel': maxAccel,
+                    'Ec': Ec,
+                    'Ev': Ev,
+                    'maxReaction': maxReaction,
+                    'CD': CD,
+                    'CPD': CPD,
+                    'resDisp': u_next
+                }, (time, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th)

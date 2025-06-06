@@ -9,7 +9,8 @@ from typing import Literal, Callable
 
 import shutil
 import numpy as np
-from .config import LOGGER, ANA_TYPE_NAME, AVAILABLE_SOLVERS, SOLVER_TYPING
+from .config import LOGGER, ANA_TYPE_NAME, AVAILABLE_SOLVERS,\
+    SOLVER_TYPING, PERIOD
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
@@ -21,21 +22,20 @@ SKIP = False
 
 class NRSA:
     cwd = Path().cwd()
-    # T = np.arange(0.01, 6, 0.01)
     has_GM_data = False
 
     def __init__(self,
                  job_name: str,
                  cache_dir: Path | str='cache',
                  *,
-                 analysis_type: Literal['CDA', 'CSA']=None):
+                 analysis_type: SOLVER_TYPING=None):
         """非线性反应谱分析
 
         Args:
             job_name (str): 分析工况名
             cache_dir (bool, optional): 是否将地震动反应谱缓存，下次实例化时将自
               动读取缓存，默认为"cache"
-            analysis_type (Literal['CDA', 'CSA']): CDA - Constant ductility analysis, CSA - Constant strength analysis
+            analysis_type (SOLVER_TYPING): CDA - Constant ductility analysis, CSA - Constant strength analysis
         """
         LOGGER.success(f'=============== {ANA_TYPE_NAME[analysis_type]} ===============')
         self.start_time = time.time()
@@ -109,7 +109,8 @@ class NRSA:
         LOGGER.success(f'Working directory has been set: {self.wkdir.as_posix()}')
 
     def analysis_settings(self,
-            period: np.ndarray,
+            period: np.ndarray | None,
+            Ti: float,
             material_function: Callable[[float, float, float, float], tuple[str, list, float, float]],
             material_paras: dict[str, tuple | float],
             damping: float,
@@ -127,7 +128,8 @@ class NRSA:
         """设置分析参数
 
         Args:
-            period (np.ndarray): 等延性谱周期序列
+            period (np.ndarray | None): 等延性谱周期序列
+            Ti (float): 周期值
             material_function (Callable[[float, float, float, float], tuple[str, list, float, float]]): 获取opensees材料格式的函数
             material_paras (dict[str, float]): 材料定义所需参数
             damping (float): 阻尼比
@@ -156,7 +158,7 @@ class NRSA:
         建议不低于0.001
         """
         # 只做相关检查，不做实际的操作
-        if period[0] == 0:
+        if (period is not None) and (period[0] == 0):
             LOGGER.error('The first period cannot be 0')
             raise Exception('Analysis has been terminated')
         for key in material_paras.keys():
@@ -186,7 +188,8 @@ class NRSA:
             raise Exception('Analysis has been terminated')
         if isclose(damping, 0.05):
             self.damping_equal_5pct = True
-        self.period = np.array(period)
+        self.period = period
+        self.Ti = Ti
         self.material_function = material_function
         self.material_paras = material_paras
         self.mass = mass
@@ -224,6 +227,10 @@ class NRSA:
         运行等延性分析时，`th_scaling`不会影响`R`值和其他无量纲响应的结果，但会影响有量纲响应的结果。
         """
         # 只统计地震动的数据位置、数量、时间间隔等信息，不存储地震动时程数据
+        if self.period is not None:
+            period = self.period
+        else:
+            period = PERIOD
         GM_folder = Path(GM_folder)
         if not self._check_path_name(GM_folder):
             raise Exception('Analysis has been terminated')
@@ -244,21 +251,21 @@ class NRSA:
         spectra_folder = self.wkdir / 'Unscaled 5%-damping spectra'
         if not Path(spectra_folder).exists():
             os.makedirs(spectra_folder)
-        self.unscaled_RSA_5pct = np.zeros((len(self.period), self.GM_N))
-        self.unscaled_RSV_5pct = np.zeros((len(self.period), self.GM_N))
-        self.unscaled_RSD_5pct = np.zeros((len(self.period), self.GM_N))
-        self.unscaled_RSA_spc = np.zeros((len(self.period), self.GM_N))  # 特定阻尼比反应谱
+        self.unscaled_RSA_5pct = np.zeros((len(period), self.GM_N))
+        self.unscaled_RSV_5pct = np.zeros((len(period), self.GM_N))
+        self.unscaled_RSD_5pct = np.zeros((len(period), self.GM_N))
+        self.unscaled_RSA_spc = np.zeros((len(period), self.GM_N))  # 特定阻尼比反应谱
         for i in range(self.GM_N):
             print(f'  Calculating unscaled 5%-damping response spectra ({i+1}/{self.GM_N})   \r', end='')
             th = np.loadtxt(self.GM_folder / f'{self.GM_names[i]}{self.suffix}') * self.GM_global_sf
-            RSA, RSV, RSD = get_spectrum(ag=th, dt=self.GM_dts[i], T=self.period, zeta=0.05, cache_dir=self.cache_dir)
+            RSA, RSV, RSD = get_spectrum(ag=th, dt=self.GM_dts[i], T=period, zeta=0.05, cache_dir=self.cache_dir)
             np.savetxt(spectra_folder / f'RSA_{self.GM_names[i]}.txt', RSA)
             self.unscaled_RSA_5pct[:, i] = RSA
             self.unscaled_RSA_spc[:, i] = RSA  # 先用5%阻尼比计算反应谱，如果分析用阻尼比不等于5%再进行计算
             self.unscaled_RSV_5pct[:, i] = RSV
             self.unscaled_RSD_5pct[:, i] = RSD
         print('', end='')
-        np.savetxt(spectra_folder / 'Periods.txt', self.period)
+        np.savetxt(spectra_folder / 'Periods.txt', period)
         LOGGER.success(f'{self.GM_N} ground motion records have been selected')
 
     def running_settings(self,
@@ -315,7 +322,10 @@ class NRSA:
         job['Groung motion folder'] = self.GM_folder.as_posix()
         job['Number of ground motions'] = self.GM_N
         job['Ground motion scaling factor'] = self.GM_global_sf
-        job['Periods'] = self.period.tolist()
+        if self.period is not None:
+            job['Periods'] = self.period.tolist()
+        else:
+            job['Periods'] = PERIOD.tolist()
         job['Ground motion names'] = self.GM_names
         job['Ground motion time intervals'] = self.GM_dts
         job['Ground motion lengths'] = self.GM_NPTS

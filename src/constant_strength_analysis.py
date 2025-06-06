@@ -150,7 +150,7 @@ def _constant_strength_analysis(
     lock.acquire()
     results.to_csv(wkdir / f'results/{GM_name}.csv', index=False)
     lock.release()
-    return results
+    return None
 
 
 

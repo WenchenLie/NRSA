@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from .config import LOGGER
+from .config import LOGGER, PERIOD
 from .NRSA import NRSA
 
 
@@ -16,9 +16,62 @@ class ConstantDuctilityAnalysis(NRSA):
     def __init__(self, job_name: str, cache_dir: Path | str='cache'):
         super().__init__(job_name, cache_dir, analysis_type='CDA')
 
-class ConstantStrengthAnalysis(NRSA):
-    def __init__(self, job_name: str, cache_dir: Path | str='cache'):
-        super().__init__(job_name, cache_dir, analysis_type='CSA')
+    def analysis_settings(self,
+            period: np.ndarray | float,
+            material_function: Callable[[float, float, float, float], tuple[str, list, float, float]],
+            material_paras: dict[str, tuple | float],
+            damping: float,
+            target_ductility: float,
+            R_init: float,
+            R_incr: float,
+            tol_ductility: float,
+            tol_R: float,
+            max_iter: int,
+            thetaD: float=0,
+            mass: float=1,
+            height: float=1,
+            fv_duration: float=0.0,
+        ):
+        """设置分析参数
+
+        Args:
+            period (np.ndarray | float): 等延性谱周期序列
+            material_function (Callable[[float, float, float, float], tuple[str, list, float, float]]): 获取opensees材料格式的函数
+            material_paras (dict[str, float]): 材料定义所需参数
+            damping (float): 阻尼比
+            target_ductility (float): 目标延性
+            R_init (float): 初始强度折减系数(R)
+            R_incr (float): 强度折减系数(R)递增值
+            tol_ductility (float): 延性(μ)收敛容差
+            tol_R (float): 相邻强度折减系数(R)收敛容差
+            max_iter (int): 最大迭代次数
+            thetaD (float): P-Delta系数
+            mass (float): 质量，默认1
+            height (float, optional): 高度，默认1
+            fv_duration (float, optional): 自由振动持续时间，默认0.0
+        
+        Converge criteria for constant ductility analysis:
+        --------------------------------------------------
+        `abs(μ - μ_target) / μ_target < tol_ductility`  
+        `abs(R1 - R2) / R2 < tol_R`  
+        where R1 and R2 are the adjacent R values.
+
+        Note:
+        -----
+        * `mass`不会影响`R`和具有长度和时间量纲的响应，但会影响具有力量纲的响应，
+        力量纲响应与`mass`成正比
+        * 等延性分析中，延性容差`tol_ductility`建议不低于0.01，强度折减系数`R`容差
+        建议不低于0.001
+        """
+        Ti = 0
+        super().analysis_settings(period, Ti, material_function, material_paras,
+                                  damping, target_ductility, R_init, R_incr,
+                                  tol_ductility, tol_R, max_iter, thetaD, mass,
+                                  height, fv_duration)
+
+class CSA_THA(NRSA):
+    def __init__(self, job_name: str, cache_dir: Path | str, analysis_type: str):
+        super().__init__(job_name, cache_dir, analysis_type=analysis_type)
 
     def scale_ground_motions(self,
             method: str,
@@ -60,6 +113,10 @@ class ConstantStrengthAnalysis(NRSA):
         -----
         缩放系数都是基于5%阻尼比反应谱来确定的
         """
+        if self.analysis_type == 'CSA':
+            period = self.period
+        else:
+            period = PERIOD
         method = method
         if target_spectrum is not None:
             T_code, Sa_code = target_spectrum[:, 0], target_spectrum[:, 1]
@@ -67,13 +124,13 @@ class ConstantStrengthAnalysis(NRSA):
             Sv_code = Sa_code * T_code / (2 * pi)
             Sd_code = Sa_code * (T_code / (2 * pi)) ** 2
         else:
-            T_code = self.period
+            T_code = period
             Sa_code = None
             Sv_code = None
             Sd_code = None
-        scaled_GM_RSA = np.zeros((len(self.period), self.GM_N))
-        scaled_GM_RSV = np.zeros((len(self.period), self.GM_N))
-        scaled_GM_RSD = np.zeros((len(self.period), self.GM_N))
+        scaled_GM_RSA = np.zeros((len(period), self.GM_N))
+        scaled_GM_RSV = np.zeros((len(period), self.GM_N))
+        scaled_GM_RSD = np.zeros((len(period), self.GM_N))
         if method == 'g':
             sf_path = para
             sfs = np.loadtxt(sf_path)
@@ -85,17 +142,17 @@ class ConstantStrengthAnalysis(NRSA):
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')
                 T0 = 0
-                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(self.period, RSA, T0)
+                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(period, RSA, T0)
             elif method == 'b':
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')
                 T0 = para
-                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(self.period, RSA, T0)
+                sf = self.get_y(T_code, Sa_code, T0) / self.get_y(period, RSA, T0)
             elif method == 'c':
                 if target_spectrum is None:
                     raise ValueError('Argument `target_spectrum` should be given')
                 T1, T2 = para
-                idx1, idx2 = self.get_y(T_code, RSA, T1, True)[1], self.get_y(self.period, RSA, T2, True)[1]
+                idx1, idx2 = self.get_y(T_code, RSA, T1, True)[1], self.get_y(period, RSA, T2, True)[1]
                 init_sf = 1.0  # 初始缩放系数
                 learning_rate = 0.01  # 学习率
                 num_iterations = 40000  # 迭代次数
@@ -120,8 +177,8 @@ class ConstantStrengthAnalysis(NRSA):
                     Ti = T_code[i]
                     if T1 <= Ti <= T2:
                         Sa_i_code.append(Sa_code[i])
-                for i in range(len(self.period)):
-                    Ti = self.period[i]
+                for i in range(len(period)):
+                    Ti = period[i]
                     if T1 <= Ti <= T2:
                         Sa_i.append(RSA[i])
                 Sa_avg_code = self.geometric_mean(Sa_i_code)
@@ -132,11 +189,11 @@ class ConstantStrengthAnalysis(NRSA):
                     is_print = False
             elif method == 'i':
                 Ta, Sa_target = para
-                Sa_gm = self.get_y(self.period, RSA, Ta)
+                Sa_gm = self.get_y(period, RSA, Ta)
                 sf = Sa_target / Sa_gm
             elif method == 'j':
                 Ta, Tb, Sa_target = para
-                Sa_gm_avg = self.geometric_mean(RSA[(Ta <= self.period) & (self.period <= Tb)])
+                Sa_gm_avg = self.geometric_mean(RSA[(Ta <= period) & (period <= Tb)])
                 sf = Sa_target / Sa_gm_avg
             else:
                 LOGGER.error('The `method` parameter is incorrect!')
@@ -155,19 +212,19 @@ class ConstantStrengthAnalysis(NRSA):
             json.dump(sf_dict, open(file_path, 'w'), indent=4)
             LOGGER.info(f'Scaling factors have been saved to {file_path}')
         if save_scaled_spec:
-            data_RSA = np.zeros((len(self.period), self.GM_N + 1))
-            data_RSV = np.zeros((len(self.period), self.GM_N + 1))
-            data_RSD = np.zeros((len(self.period), self.GM_N + 1))
-            data_RSA[:, 0] = self.period
-            data_RSV[:, 0] = self.period
-            data_RSD[:, 0] = self.period
+            data_RSA = np.zeros((len(period), self.GM_N + 1))
+            data_RSV = np.zeros((len(period), self.GM_N + 1))
+            data_RSD = np.zeros((len(period), self.GM_N + 1))
+            data_RSA[:, 0] = period
+            data_RSV[:, 0] = period
+            data_RSD[:, 0] = period
             data_RSA[:, 1:] = scaled_GM_RSA
             data_RSV[:, 1:] = scaled_GM_RSV
             data_RSD[:, 1:] = scaled_GM_RSD
-            stat_A, stat_V, stat_D = np.zeros((len(self.period), 6)), np.zeros((len(self.period), 6)), np.zeros((len(self.period), 6))
-            stat_A[:, 0] = self.period
-            stat_V[:, 0] = self.period
-            stat_D[:, 0] = self.period
+            stat_A, stat_V, stat_D = np.zeros((len(period), 6)), np.zeros((len(period), 6)), np.zeros((len(period), 6))
+            stat_A[:, 0] = period
+            stat_V[:, 0] = period
+            stat_D[:, 0] = period
             stat_A[:, 1] = np.percentile(data_RSA[:, 1:], 16, axis=1)
             stat_A[:, 2] = np.percentile(data_RSA[:, 1:], 50, axis=1)
             stat_A[:, 3] = np.percentile(data_RSA[:, 1:], 84, axis=1)
@@ -215,11 +272,11 @@ class ConstantStrengthAnalysis(NRSA):
             plt.scatter(para[0], para[1], color='blue', zorder=99999)
         for i in range(self.GM_N):
             plt.subplot(131)
-            plt.plot(self.period, scaled_GM_RSA[:, i], color='grey')
+            plt.plot(period, scaled_GM_RSA[:, i], color='grey')
             plt.subplot(132)
-            plt.plot(self.period, scaled_GM_RSV[:, i], color='grey')   
+            plt.plot(period, scaled_GM_RSV[:, i], color='grey')   
             plt.subplot(133)
-            plt.plot(self.period, scaled_GM_RSD[:, i], color='grey')    
+            plt.plot(period, scaled_GM_RSD[:, i], color='grey')    
         plt.subplot(131)
         if Sa_code is not None:
             plt.plot(T_code, Sa_code, label='Code', color='red')
@@ -246,32 +303,6 @@ class ConstantStrengthAnalysis(NRSA):
         else:
             plt.close()
         self.scaling_finished = True
-
-    def analysis_settings(self,
-            period: np.ndarray,
-            material_function: Callable[[float, float], tuple[str, list, float, float]],
-            material_paras: dict[str, tuple | float],
-            damping: float,
-            thetaD: float=0,
-            mass: float=1,
-            height: float=1,
-            fv_duration: float=0.0,                  
-        ):
-        """设置分析参数
-
-        Args:
-            period (np.ndarray): 等延性谱周期序列
-            material_function (Callable[[float, float, float, float], tuple[str, list, float, float]]): 获取opensees材料格式的函数
-            material_paras (dict[str, float]): 材料定义所需参数
-            damping (float): 阻尼比
-            thetaD (float): P-Delta系数
-            mass (float): 质量，默认1
-            height (float, optional): 高度，默认1
-            fv_duration (float, optional): 自由振动持续时间，默认0.0
-        """
-        super().analysis_settings(period, material_function, material_paras, damping,
-            10, 1, 1, 0.01, 0.01, 100,
-            thetaD, mass, height, fv_duration)
     
     def run(self):
         if not self.scaling_finished:
@@ -316,3 +347,165 @@ class ConstantStrengthAnalysis(NRSA):
         return total
 
 
+class ConstantStrengthAnalysis(CSA_THA):
+    def __init__(self, job_name, cache_dir='cache'):
+        super().__init__(job_name, cache_dir, analysis_type='CSA')
+
+    def analysis_settings(self,
+            period: np.ndarray | float,
+            material_function: Callable[[float, float], tuple[str, list, float, float]],
+            material_paras: dict[str, tuple | float],
+            damping: float,
+            thetaD: float=0,
+            mass: float=1,
+            height: float=1,
+            fv_duration: float=0.0,                  
+        ):
+        """设置分析参数
+
+        Args:
+            period (np.ndarray | float): 等延性谱周期序列
+            material_function (Callable[[float, float, float, float], tuple[str, list, float, float]]): 获取opensees材料格式的函数
+            material_paras (dict[str, float]): 材料定义所需参数
+            damping (float): 阻尼比
+            thetaD (float): P-Delta系数
+            mass (float): 质量，默认1
+            height (float, optional): 高度，默认1
+            fv_duration (float, optional): 自由振动持续时间，默认0.0
+        """
+        Ti = 0
+        super().analysis_settings(period, Ti, material_function, material_paras, damping,
+            10, 1, 1, 0.01, 0.01, 100,
+            thetaD, mass, height, fv_duration)
+
+
+class TimeHistoryAnalysis(CSA_THA):
+    def __init__(self, job_name, cache_dir='cache'):
+        super().__init__(job_name, cache_dir, analysis_type='THA')
+
+    def analysis_settings(self,
+            Ti: float | None,
+            material_function: Callable[[float, float], tuple[str, list, float, float]],
+            material_paras: dict[str, tuple | float],
+            damping: float,
+            thetaD: float=0,
+            mass: float=1,
+            height: float=1,
+            fv_duration: float=0.0,                  
+        ):
+        """设置分析参数
+
+        Args:
+            Ti (float | None): 周期点
+            material_function (Callable[[float, float, float, float], tuple[str, list, float, float]]): 获取opensees材料格式的函数
+            material_paras (dict[str, float]): 材料定义所需参数
+            damping (float): 阻尼比
+            thetaD (float): P-Delta系数
+            mass (float): 质量，默认1
+            height (float, optional): 高度，默认1
+            fv_duration (float, optional): 自由振动持续时间，默认0.0
+        """
+        super().analysis_settings(None, Ti, material_function, material_paras, damping,
+            10, 1, 1, 0.01, 0.01, 100,
+            thetaD, mass, height, fv_duration)
+        
+    def get_results(self, plot: bool=True) -> np.ndarray:
+        """获取分析结果
+
+        Args:
+            plot (bool, optional): 是否绘制结果图
+        
+        Returns:
+            np.ndarray: 返回ndarray，各列依次为：时间序列，地面加速度，相对位移，
+              相对速度，绝对加速度，累积塑性能量，累积黏滞阻尼耗能，
+              累积位移，累积塑性位移，底部反应力
+        """
+        plt.figure(figsize=(17, 12))
+        titles = ['Groung motions', 'Relative Disp.', 'Relative Vel.',
+                  'Absolute Accel.', 'Cum. Plas. Energy Diss.', 'Cum. Visc. Energy Diss.',
+                  'Cum. Disp.', 'Cum. Plas. Disp.', 'Base Reaction', 'Material Hyst. Response',
+                  'Visc. Damp Hyst. Response', 'Total Hyst. Response']
+        ylabels = ['Acceleration [g]', 'Displacement', 'Velocity',
+                   'Acceleration', 'Energy', 'Energy', 'Displacement',
+                   'Displacement', 'Reaction', 'Force', 'Force', 'Force']
+        for gm_name in self.GM_names:
+            results: np.ndarray = np.load(self.wkdir / f'results/{gm_name}.npy')
+            time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th = results.T
+            plt.subplot(341)
+            plt.title(titles[0])
+            plt.plot(time_, ag_scaled / 9800, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[0])
+            plt.legend()
+            plt.subplot(342)
+            plt.title(titles[1])
+            plt.plot(time_, disp_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[1])
+            plt.legend()
+            plt.subplot(343)
+            plt.title(titles[2])
+            plt.plot(time_, vel_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[2])
+            plt.legend()
+            plt.subplot(344)
+            plt.title(titles[3])
+            plt.plot(time_, accel_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[3])
+            plt.legend()
+            plt.subplot(345)
+            plt.title(titles[4])
+            plt.plot(time_, Ec_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[4])
+            plt.legend()
+            plt.subplot(346)
+            plt.title(titles[5])
+            plt.plot(time_, Ev_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[5])
+            plt.legend()
+            plt.subplot(347)
+            plt.title(titles[6])
+            plt.plot(time_, CD_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[6])
+            plt.legend()
+            plt.subplot(348)
+            plt.title(titles[7])
+            plt.plot(time_, CPD_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[7])
+            plt.legend()
+            plt.subplot(349)
+            plt.title(titles[8])
+            plt.plot(time_, reaction_th, label=gm_name)
+            plt.xlabel('Time [s]')
+            plt.ylabel(ylabels[8])
+            plt.legend()
+            plt.subplot(3, 4, 10)
+            plt.title(titles[9])
+            plt.plot(disp_th, eleForce_th, label=gm_name)
+            plt.xlabel('Displement')
+            plt.ylabel(ylabels[9])
+            plt.legend()
+            plt.subplot(3, 4, 11)
+            plt.title(titles[10])
+            plt.plot(disp_th, dampingForce_th, label=gm_name)
+            plt.xlabel('Displement')
+            plt.legend()
+            plt.subplot(3, 4, 12)
+            plt.title(titles[11])
+            total_force = eleForce_th + dampingForce_th
+            plt.plot(disp_th, total_force, label=gm_name)
+            plt.xlabel('Displement')
+            plt.ylabel(ylabels[11])
+            plt.legend()
+        plt.tight_layout()
+        plt.savefig(self.wkdir / f'Results.png', dpi=600)
+        if plot:
+            plt.show()
+        plt.close()
+        return results

@@ -4,6 +4,7 @@ if TYPE_CHECKING:
     from .NRSA import NRSA
 import os, time, json
 import multiprocessing
+from multiprocessing.pool import AsyncResult
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -11,9 +12,10 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
 from ui.Win import Ui_Win
-from .config import LOGGER, ANA_TYPE_NAME
+from .config import LOGGER, ANA_TYPE_NAME, PERIOD
 from .constant_ductility_iteration import constant_ductility_iteration
 from .constant_strength_analysis import constant_strength_analysis
+from .time_history_analysis import time_history_analysis
 
 
 class Win(QDialog):
@@ -33,14 +35,17 @@ class Win(QDialog):
     def init_var(self, nrsa: NRSA):
         """实例属性"""
         # 将ConstantDuctilityAnalysis实例的变量作为_Win的实例属性
-        self.period = nrsa.period
         self.analysis_type = nrsa.analysis_type
         self.start_time = nrsa.start_time
         self.solver = nrsa.solver
         self.hidden_prints = nrsa.hidden_prints
         self.job_name = nrsa.job_name
         self.wkdir = nrsa.wkdir
-        self.period = nrsa.period
+        if nrsa.period is not None:
+            self.period = nrsa.period
+        else:
+            self.period = PERIOD
+        self.Ti = nrsa.Ti
         self.material_function = nrsa.material_function
         self.material_paras = nrsa.material_paras
         self.damping = nrsa.damping
@@ -187,6 +192,7 @@ class _Worker(QThread):
     signal_ana_termination = pyqtSignal()  # 计算结束(可能是中断或完成)
     signal_ana_suscess = pyqtSignal()  # 计算成功
     signal_ana_failed = pyqtSignal(tuple)  # 计算失败
+    # signal_send_results = pyqtSignal(list)  # 发送结果
 
     def __init__(self, win: Win) -> None:
         super().__init__()
@@ -196,6 +202,7 @@ class _Worker(QThread):
         self.job_name = win.job_name
         self.wkdir = win.wkdir
         self.period = win.period
+        self.Ti = win.Ti
         self.material_function = win.material_function
         self.material_paras = win.material_paras
         self.damping = win.damping
@@ -356,6 +363,7 @@ class _Worker(QThread):
         for gm_idx in range(self.GM_N):
             wkdir = self.wkdir
             periods = self.period
+            Ti = self.Ti
             material_function = self.material_function
             material_paras = self.material_paras
             damping = self.damping
@@ -376,8 +384,8 @@ class _Worker(QThread):
                     Sa_ls = self.unscaled_RSA_spc[self.damping][:, gm_idx]
                 else:
                     Sa_ls = self.unscaled_RSA_spc[:, gm_idx]
-            elif self.analysis_type == 'CSA':
-                # 等强度分析中，Sa为采用5%阻尼比的缩放后的谱加速度
+            elif self.analysis_type in ['CSA', 'THA']:
+                # 等强度分析或时程分析中，Sa为采用5%阻尼比的缩放后的谱加速度
                 Sa_ls = self.unscaled_RSA_5pct[:, gm_idx] * self.GM_indiv_sf[gm_idx]
             solver = self.solver
             tol_ductility = self.tol_ductility
@@ -397,6 +405,14 @@ class _Worker(QThread):
                     gm_name, gm_th, scaling_factor, dt, fv_duration, Sa_ls, solver, hidden_prints,\
                     queue, stop_event, pause_event, lock)
                 func = constant_strength_analysis
+            elif self.analysis_type == 'THA':
+                period = PERIOD
+                get_Sa = interp1d(period, Sa_ls, kind='linear', fill_value='extrapolate')
+                scaling_factor *= self.GM_indiv_sf[gm_idx]
+                args = (wkdir, Ti, material_function, material_paras, damping, thetaD, mass, he,\
+                    gm_name, gm_th, scaling_factor, dt, fv_duration, get_Sa, solver, hidden_prints,\
+                    queue, stop_event, pause_event, lock)
+                func = time_history_analysis
             else:
                 assert False, f'Unknow running type: {self.analysis_type}'
             ls_paras.append(args)

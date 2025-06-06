@@ -60,7 +60,7 @@ if __name__ == "__main__":
         }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
         # 需Python 3.7+从而保证字典的键值对顺序不变
         model = ConstantStrengthAnalysis(f'Test_{Cy}')
-        model.set_working_directory(f'./CSA_results/{Cy}', folder_exists='delete')
+        model.set_working_directory(f'./results_CSA/{Cy}', folder_exists='delete')
         model.analysis_settings(T, material_definition, material_paras, damping=0.05, thetaD=0)
         model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
         code_spec = np.loadtxt('./data/DBE_spec.txt')
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     for i, gm in enumerate(['Northridge', 'Kobe']):
         plt.subplot(2, 1, i + 1)
         for j, Cy in enumerate(Cy_ls):
-            res = pd.read_csv(f'./CSA_results/{Cy}/results/{gm}.csv')
+            res = pd.read_csv(f'./results_CSA/{Cy}/results/{gm}.csv')
             T = res['T']
             miu = res['miu']
             plt.plot(T, miu, label=f'Cy={Cy}')
