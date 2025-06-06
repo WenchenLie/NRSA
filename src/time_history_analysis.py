@@ -2,6 +2,7 @@ import os, json
 import time
 import traceback
 import multiprocessing
+import importlib
 from pathlib import Path
 from typing import Callable
 
@@ -11,8 +12,6 @@ from scipy.interpolate import interp1d
 
 from .config import SOLVER_TYPING
 from .utils import SDOFHelper, SDOFError
-from .ops_solver import ops_solver
-from .newmark import newmark_solver
 
 
 def time_history_analysis(*args, **kwargs):
@@ -75,6 +74,11 @@ def _time_history_analysis(
     """
     num_ana = 1
     results = pd.DataFrame(None, columns=['T', 'E', 'Fy', 'uy', 'Sa', 'R', 'miu', 'maxDisp', 'maxVel', 'maxAccel', 'Ec', 'Ev', 'maxReaction', 'CD', 'CPD','resDisp', 'solving_converge'])
+    package_name = __package__
+    module_attr = {
+        'newmark': 'newmark_solver',
+        'ops_solver': 'ops_solver'
+    }
     start_time = time.time()
     solving_converge = 1  # 求解是否收敛，如果有不收敛则变为False
     if stop_event.is_set():
@@ -97,14 +101,17 @@ def _time_history_analysis(
         res: dict[str, float]
         res_th: tuple[np.ndarray, ...]
         if solver == 'auto':
-            for solver_func in [newmark_solver, ops_solver]:
+            for module_name in ['newmark', 'ops_solver']:
+                solver_func = importlib.import_module(f".{module_name}", package=package_name).__getattribute__(module_attr[module_name])
                 res, res_th = solver_func(*solver_paras, record_res=True, **kwargs)
                 if res['converge']:
                     break 
         elif solver == 'OPS':
-            res, res_th = ops_solver(*solver_paras, record_res=True, **kwargs)
+            solver_func = importlib.import_module(f".ops_solver", package=package_name).__getattribute__('ops_solver')
+            res, res_th = solver_func(*solver_paras, record_res=True, **kwargs)
         elif solver == 'Newmark-Newton':
-            res, res_th = newmark_solver(*solver_paras, record_res=True, **kwargs)
+            solver_func = importlib.import_module(f".newmark", package=package_name).__getattribute__('newmark_solver')
+            res, res_th = solver_func(*solver_paras, record_res=True, **kwargs)
         else:
             raise SDOFError(f'Wrong solver name: {solver}')
     except:

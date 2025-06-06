@@ -45,7 +45,7 @@ else:
     from .utils import is_iterable
 from . import opensees as ops
 
-
+# TODO: 当运行类型为THA时输出时程结果
 __all__ = ['ops_solver']
 
 

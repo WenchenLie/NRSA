@@ -2,17 +2,15 @@ import os, json
 import time
 import traceback
 import multiprocessing
+import importlib
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
 
 from .config import SOLVER_TYPING
 from .utils import SDOFHelper, SDOFError
-from .ops_solver import ops_solver
-from .newmark import newmark_solver
 
 
 def constant_ductility_iteration(*args, **kwargs):
@@ -98,6 +96,11 @@ def _constant_ductility_iteration(
     num_iters: list[int] = []  # 迭代次数
     solving_converge = 1  # 求解是否收敛，如果有不收敛则变为False
     iter_converge = 1  # 迭代是否收敛，如果超过迭代次数则变为False
+    package_name = __package__
+    module_attr = {
+        'newmark': 'newmark_solver',
+        'ops_solver': 'ops_solver'
+    }
     for idx, Ti in enumerate(periods):
         # print(f'Ti = {Ti:.2f}')
         R = R_init  # 初始强度折减系数 (R=1时结构弹性，R越大，结构强度越低，位移越大)
@@ -127,14 +130,17 @@ def _constant_ductility_iteration(
             solver_paras = (Ti, th, dt, ops_paras, uy, fv_duration, scaling_factor, P, height, damping, mass)
             try:
                 if solver == 'auto':
-                    for solver_func in [newmark_solver, ops_solver]:
+                    for module_name in ['newmark', 'ops_solver']:
+                        solver_func = importlib.import_module(f".{module_name}", package=package_name).__getattribute__(module_attr[module_name])
                         res: dict = solver_func(*solver_paras, **kwargs)
                         if res['converge']:
                             break 
                 elif solver == 'OPS':
-                    res: dict = ops_solver(*solver_paras, **kwargs)
+                    solver_func = importlib.import_module(f".ops_solver", package=package_name).__getattribute__('ops_solver')
+                    res: dict = solver_func(*solver_paras, **kwargs)
                 elif solver == 'Newmark-Newton':
-                    res: dict = newmark_solver(*solver_paras, **kwargs)
+                    solver_func = importlib.import_module(f".newmark", package=package_name).__getattribute__('newmark_solver')
+                    res: dict = solver_func(*solver_paras, **kwargs)
                 else:
                     raise SDOFError(f'Wrong solver name: {solver}')
             except:
