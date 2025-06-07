@@ -22,3 +22,5 @@ def spectrum(
         tuple[np.ndarray, np.ndarray, np.ndarray]: 谱加速度(伪加速度)、谱速度、谱位移
     """
     ...
+    
+# TODO: spectrum.pyd没有上传

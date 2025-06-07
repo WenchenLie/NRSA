@@ -1,78 +1,28 @@
 """
------------------ 单自由度时程分析求解器 ----------------------
-共包含三个进行非线性SDOF体系时程分析的函数，
-分别为ops_solver、SDOF_batched_solver和PDtSDOF_batched_solver，
-其中
-ops_solver：            非线性单自由度体系(可考虑简化等效的P-Delta效应)
-
-注：
-批量分析目前仅支持相同地震动，
-但各个SDOF的周期、材料、屈服位移（用于计算累积塑性位移）、倒塌判定位移、最大分析位移均可单独指定。
-各个函数的输入、输出参数可见对应的文档注释和类型注解。
-各个函数计算后返回一个dict，可用的键包括：
-* 是否收敛，'converge': bool
-* 是否倒塌，'collapse': bool | tuple[bool, ...]
-* 最大相对位移：'maxDisp': float | list[float]]
-* 最大相对速度：'maxVel': float | list[float]]
-* 最大绝对加速度：'maxAccel': float | list[float]]
-* 累积弹塑性耗能：'Ec': float | list[float]]
-* 累积Rayleigh阻尼耗能：'Ev': float | list[float]]
-* 最大基底反力：'maxReaction': float | list[float]]
-* 累积位移：'CD': float | list[float]]
-* 累积塑性位移：'CPD': float | list[float]]
-* 残余位移：'resDisp': float | list[float]]
-建模方法：
-所有SDOF采用零长度单元建模，采用一致激励对SDOF进行非线性时程分析，节点提取的直接地  
-震响应为相对响应，为了计算结构绝对响应，额外建立一个大质量零刚度的特殊SDOF，用于提  
-取结构的基底位移、速度和加速度，在此基础上计算其余SDOF的绝对响应。
+--------------------- 基于OpenSees单自由度时程分析求解器 ----------------------
+特性:
+(1) 建模：SDOF体系通过两个相同位置的结点和中间的 zeroLength 单元连接。
+(2) 地震动施加：根据 D'Alembert 原理将地震动等效为上部结点的荷载施加。
+(3) 求解：通过自适应调整时间步长和迭代算法，获得良好的收敛性。
+(4) 输出：多种响应的峰值和时程响应(可选)，包括相对位移、相对速度、绝对加速度、
+    累积弹塑性耗能、累积黏滞阻尼耗能、底部反力、累积位移、累积塑性位移、残余位移
 """
 
 import re
 from math import pi, sqrt
 from typing import Dict, Tuple
-from pathlib import Path
 
 import numpy as np
-import matplotlib.pyplot as plt
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-    sys.path.append(Path(__file__).parent.parent)
-    from utils import SDOFError, SDOFHelper, a2u
-    from utils import is_iterable
-else:
-    from .utils import SDOFError, SDOFHelper, a2u
-    from .utils import is_iterable
+
+from .utils import SDOFError, SDOFHelper
+from .utils import is_iterable
 from . import opensees as ops
 
-# TODO: 当运行类型为THA时输出时程结果
+
 __all__ = ['ops_solver']
 
-
-if __name__ == "__main__":
-    # 一些全局变量用于储存结构响应时程
-    TIME = []  # 时间序列
-    A_R = []  # 相对加速度
-    A_A = []  # 绝对加速度
-    V_R = []  # 相对速度
-    V_A = []  # 绝对速度
-    U_R = []  # 相对位移
-    U_A = []  # 绝对位移
-    A_BASE = []  # 底部加速度
-    V_BASE = []  # 底部速度
-    U_BASE = []  # 底部位移
-    REACTION = []  # 底部剪力
-    REACTION_HYS = []  # 底部剪力(仅材料内力)
-    REACTION_RAY = []  # 底部剪力(仅阻尼力)
-    E_HYS = []  # 材料累积耗能
-    E_RAY = []  # 阻尼累积耗能
-    CD_ = []  # 累积变形
-    CPD_ = []  # 累积塑性变形
-    TEMP = []  # 其他响应
-
-
 def ops_solver(
-        T: int | float,
+        T: float | float,
         ag: np.ndarray,
         dt: float,
         materials: Dict[str, tuple],
@@ -86,13 +36,14 @@ def ops_solver(
         g: float=9800,
         collapse_disp: float=1e14,
         maxAnalysis_disp: float=1e15,
+        record_res: bool=False,
         **kwargs
-    ) -> dict[str, bool | float]:
+    ) -> dict[str, float] | tuple[dict[str, float], tuple[np.ndarray, ...]]:
     """SDOF求解函数，每次调用对一个SDOF进行非线性时程分析。
     模型结构为两个具有相同位置的结点，中间采用zeroLength单元连接。
 
     Args:
-        T (int | float): 周期
+        T (float | float): 周期
         ag (np.ndarray): 地震动加速度时程（单位为g）
         dt (float): 时程步长
         materials (Dict[str, tuple]): 材料属性，包括材料名和参数（不包括编号）
@@ -106,8 +57,9 @@ def ops_solver(
         g (float, optional): 重力加速度，默认9800
         collapse_disp (float, optional): 倒塌位移判定准则，默认1e14
         maxAnalysis_disp (float, optional): 最大分析位移，默认1e15
+        record_res (bool, optional): 是否记录时程响应
 
-    Returns: dict[str, bool | float]
+    Returns: dict[str, float] | tuple[dict[str, float], tuple[np.ndarray, ...]]
         键值对依次包括：
         * 是否收敛，'converge': bool
         * 是否倒塌，'collapse': bool
@@ -140,18 +92,14 @@ def ops_solver(
          1 o (accel input)
     """
     with SDOFHelper(False, False):
-        model = _ops_solver(T, ag, dt, materials, uy, fv_duration, sf, P, h, zeta, m, g, collapse_disp, maxAnalysis_disp)
+        model = _ops_solver(T, ag, dt, materials, uy, fv_duration, sf, P, h, zeta, m, g, collapse_disp, maxAnalysis_disp, record_res)
         results = model.get_results()
     return results
 
 
-# ---------------------------------------------------------------------------
-# --------------------------------- 单个SDOF求解 -----------------------------
-# ---------------------------------------------------------------------------
-
 class _ops_solver:
     def __init__(self,
-            T: int | float,
+            T: float | float,
             ag: np.ndarray,
             dt: float,
             materials: Dict[str, tuple],
@@ -164,7 +112,8 @@ class _ops_solver:
             m: float=1,
             g: float=9800,
             collapse_disp: float=1e14,
-            maxAnalysis_disp: float=1e15,):
+            maxAnalysis_disp: float=1e15,
+            record_res: bool=False):
         self.T = T
         self.ag = ag
         self.dt = dt
@@ -179,11 +128,10 @@ class _ops_solver:
         self.g = g
         self.collapse_disp = collapse_disp
         self.maxAnalysis_disp = maxAnalysis_disp
+        self.record_res = record_res
         self.NPTS = len(ag)
         self.duration = (self.NPTS - 1) * dt + fv_duration
         omega = 2 * pi / T
-        self.NPTS = len(ag)
-        self.duration = (self.NPTS - 1) * dt + fv_duration
         self.a = 0
         self.b = 2 * zeta / omega
         # self.a = 2 * zeta * omega
@@ -193,6 +141,18 @@ class _ops_solver:
         # print(f'a = {self.a}, b = {self.b}')
         # self.c = 2 * m * zeta * omega
         # print(f'c = {self.c}')
+        self.time = []  # 时间序列
+        self.ag_scaled = []  # 地面运动
+        self.disp_th = []  # 相对位移
+        self.vel_th = []  # 相对速度
+        self.accel_th = []  # 绝对加速度
+        self.Ec_th = []  # 累积弹塑性耗能
+        self.Ev_th = []  # 累积Rayleigh阻尼耗能
+        self.CD_th = []  # 累积变形
+        self.CPD_th = []  # 累积塑性变形
+        self.reaction_th = []  # 底部反力
+        self.eleForce_th = []  # 材料力
+        self.dampingForce_th = []  # 黏滞阻尼力
         self.run_model()
 
 
@@ -206,9 +166,7 @@ class _ops_solver:
         ops.mass(2, self.m)
         matTag = 1
         for matType, paras in self.materials.items():
-            if not is_iterable(paras):
-                paras = (paras,)
-            ops.uniaxialMaterial(matType, matTag, *_update_para(matTag, *paras))
+            ops.uniaxialMaterial(matType, matTag, *paras)
             matTag += 1
         if self.P != 0:
             k_neg = -self.P / self.h  # P-Delta效应引起的负刚度
@@ -219,9 +177,8 @@ class _ops_solver:
         ops.uniaxialMaterial('Elastic', matTag, 0)
         ops.element('zeroLength', 1, 1, 2, '-mat', matTag - 1, '-dir', 1, '-doRayleigh', 1)  # 弹塑性
         ops.region(1, '-ele', 1, '-rayleigh', self.a, 0, self.b, 0)  # Rayleigh阻尼
-        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.ag, '-factor', self.g)
-        # ops.pattern('UniformExcitation', 1, 1, '-accel', 1, '-fact', self.sf)
-        ops.pattern('Plain', 1, 1, '-fact', -self.m * self.sf)
+        ops.timeSeries('Path', 1, '-dt', self.dt, '-values', *self.ag, '-factor', self.g * self.sf)
+        ops.pattern('Plain', 1, 1, '-fact', -self.m)
         ops.load(2, 1)
         # 分析
         converge, collapse, response = self.time_history_analysis()
@@ -328,7 +285,7 @@ class _ops_solver:
         v: float = ops.nodeVel(2, 1)
         maxVel = max(maxVel, abs(v))
         # 最大绝对加速度
-        a_base: float = -ops.getLoadFactor(1) / self.m * self.sf
+        a_base: float = -ops.getLoadFactor(1) / self.m
         a_a: float = a_base + ops.nodeAccel(2, 1)
         maxAccel = max(maxAccel, abs(a_a))
         # 最大基底反力
@@ -361,38 +318,33 @@ class _ops_solver:
                 u_cent -= u_cent - self.uy - u
             else:
                 CPD += 0
-        if __name__ == "__main__":
-            # u_base: float = -ops.nodeDisp(2000, 1)  # 基底位移
-            # v_base: float = -ops.nodeVel(2000, 1)  # 基底速度
-            # u_a = u_base + u  # 绝对位移
-            # v_a = v_base + v  # 绝对速度
-            a: float = ops.nodeAccel(2, 1)  # 相对加速度
-            TIME.append(ops.getTime())
-            A_R.append(a)
-            A_A.append(a_a)
-            V_R.append(v)
-            # V_A.append(v_a)
-            U_R.append(u)
-            # U_A.append(u_a)
-            A_BASE.append(a_base)
-            # V_BASE.append(v_base)
-            # U_BASE.append(u_base)
-            REACTION.append(F_total)
-            REACTION_HYS.append(F_hys)
-            REACTION_RAY.append(F_ray)
-            E_HYS.append(Ec)
-            E_RAY.append(Ev)
-            CD_.append(CD)
-            CPD_.append(CPD)
+        if self.record_res:
+            self.time.append(ops.getTime())
+            self.ag_scaled.append(a_base)
+            self.disp_th.append(u)
+            self.vel_th.append(v)
+            self.accel_th.append(a_a)
+            self.Ec_th.append(Ec)
+            self.Ev_th.append(Ev)
+            self.CD_th.append(CD)
+            self.CPD_th.append(CPD)
+            self.reaction_th.append(F_total)
+            self.eleForce_th.append(F_hys)
+            self.dampingForce_th.append(F_ray)
         return maxDisp, maxVel, maxAccel,\
             Ec, Ev, maxReaction,\
             CD, CPD, u,\
             F_hys, F_ray, u_cent
         # 12个参数
 
-
     def get_results(self) -> dict[str, bool | float]:
-        return self.results
+        if not self.record_res:
+            return self.results
+        else:
+            return self.results, (self.time, self.ag_scaled, self.disp_th,\
+                self.vel_th, self.accel_th, self.Ec_th, self.Ev_th, self.CD_th,\
+                self.CPD_th, self.reaction_th, self.eleForce_th,\
+                self.dampingForce_th)
 
 
 def _update_para(matTag: int, *paras: float | str):
@@ -413,49 +365,3 @@ def _update_para(matTag: int, *paras: float | str):
         else:
             para_new.append(para)
     return para_new
-
-
-if __name__ == "__main__":
-    from src.spectrum import spectrum
-    T = 1
-    m = 1
-    Cy = 0.2
-    omg = 2 * pi / T
-    k = omg ** 2 * m
-    alpha = 0.02
-    Fy = m * 9800 * Cy
-    uy = Fy / k
-    ag = np.loadtxt(r'data/GMs/th1.th')
-    dt = 0.01
-    materials = {'Steel01': (Fy, k, alpha)}
-    with SDOFHelper(getTime=True, suppress=False):
-        results1 = ops_solver(T, ag, dt, materials, uy=uy, fv_duration=0, sf=1, m=m, P=0, h=1)
-        # t1, u1, F_hys1 = TIME, U_R, REACTION_HYS
-        # TIME, U_R, REACTION_HYS = [], [], []
-    # print('maxDisp', results['maxDisp'])
-    # print('miu', results['maxDisp'] / uy)
-    # print(state)
-    # print(result[8][0])
-    # resType = A_A
-    # print(t1[:])
-    plt.figure(figsize=(12, 8))
-    
-    plt.subplot(3, 1, 1)
-    plt.plot(TIME, U_R)
-    plt.ylabel('Displacement (m)')
-    
-    plt.subplot(3, 1, 2)
-    plt.plot(TIME, V_R)
-    plt.ylabel('Velocity (m/s)')
-    
-    plt.subplot(3, 1, 3)
-    plt.plot(TIME, A_R)
-    plt.ylabel('Acceleration (m/s²)')
-    plt.xlabel('Time (s)')
-    
-    plt.tight_layout()
-    plt.show()
-    
-    np.savetxt('temp/data.txt', np.column_stack((TIME, A_BASE)))
-    print(results1)
-    

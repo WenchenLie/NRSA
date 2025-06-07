@@ -5,7 +5,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from src.analysis import ConstantStrengthAnalysis
 
-
 def material_definition(
     Ti: float,
     m: float,
@@ -50,23 +49,22 @@ def material_definition(
 
 
 if __name__ == "__main__":
-    Cy_ls = [0.7, 1, 1.2]
+    Cy_ls = [0.5, 0.4]  # 可以为一个数或一个列表
+    alpha_ls = [0, 0.02]
     time_start = time.time()
     T = np.arange(0.02, 6, 0.02)
-    for Cy in Cy_ls:
-        material_paras: dict[str, float] = {
-            'Cy': Cy,
-            'alpha': 0.02
-        }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
-        # 需Python 3.7+从而保证字典的键值对顺序不变
-        model = ConstantStrengthAnalysis(f'Test_{Cy}')
-        model.set_working_directory(f'./results_CSA/{Cy}', folder_exists='delete')
-        model.analysis_settings(T, material_definition, material_paras, damping=0.05, thetaD=0)
-        model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
-        code_spec = np.loadtxt('./data/DBE_spec.txt')
-        model.scale_ground_motions('b', 1, code_spec, plot=True)
-        model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True)
-        model.run()
+    material_paras: dict[str, float] = {
+        'Cy': Cy_ls,  # A single value or a list of values can be used
+        'alpha': alpha_ls
+    }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
+    model = ConstantStrengthAnalysis(f'Test')
+    model.set_working_directory(f'./results_CSA/', folder_exists='delete')
+    model.analysis_settings(T, material_definition, material_paras, damping=0.05, thetaD=0)
+    model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
+    code_spec = np.loadtxt('./data/DBE_spec.txt')
+    model.scale_ground_motions('b', 1, code_spec, plot=True)
+    model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True)
+    model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
     
@@ -76,10 +74,11 @@ if __name__ == "__main__":
     for i, gm in enumerate(['Northridge', 'Kobe']):
         plt.subplot(2, 1, i + 1)
         for j, Cy in enumerate(Cy_ls):
-            res = pd.read_csv(f'./results_CSA/{Cy}/results/{gm}.csv')
-            T = res['T']
-            miu = res['miu']
-            plt.plot(T, miu, label=f'Cy={Cy}')
+            for j, alpha in enumerate(alpha_ls):
+                res = pd.read_csv(f'./results_CSA/results_{Cy}_{alpha}/{gm}.csv')
+                T = res['T']
+                miu = res['miu']
+                plt.plot(T, miu, label=f'Cy={Cy}, alpha={alpha}')
         plt.xlabel('Period (s)')
         plt.ylabel('Ductility')
         plt.xlim(0, 6)

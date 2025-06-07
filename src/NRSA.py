@@ -6,6 +6,7 @@ import multiprocessing
 from math import isclose
 from pathlib import Path
 from typing import Literal, Callable
+from itertools import product
 
 import shutil
 import numpy as np
@@ -16,6 +17,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from .Win import Win
 from .get_spectrum import get_spectrum
+from .utils import is_iterable
 
 
 SKIP = False
@@ -104,8 +106,8 @@ class NRSA:
             global SKIP
             SKIP = True
             return
-        if not Path(self.wkdir / 'results').exists():
-            os.makedirs(self.wkdir / 'results')
+        if not Path(self.wkdir).exists():
+            os.makedirs(self.wkdir)
         LOGGER.success(f'Working directory has been set: {self.wkdir.as_posix()}')
 
     def analysis_settings(self,
@@ -161,6 +163,9 @@ class NRSA:
         if (period is not None) and (period[0] == 0):
             LOGGER.error('The first period cannot be 0')
             raise Exception('Analysis has been terminated')
+        if not isinstance(material_paras, dict):
+            LOGGER.error(f'The material paramaters should be a dictionary: {material_paras}')
+            raise Exception('Analysis has been terminated')
         for key in material_paras.keys():
             if not isinstance(key, str):
                 LOGGER.error(f'The material parameter key should be a string: {key}')
@@ -191,6 +196,10 @@ class NRSA:
         self.period = period
         self.Ti = Ti
         self.material_function = material_function
+        for key, val in material_paras.items():
+            if (not is_iterable(val)) or (isinstance(val, str)):
+                # 不可迭代或为字符串
+                material_paras[key] = [val]
         self.material_paras = material_paras
         self.mass = mass
         self.damping = damping
@@ -286,6 +295,13 @@ class NRSA:
             solver (SOLVER_TYPING, optional): 求解器类型，默认为'auto'，
               即按照'Newmark-Newton'->'OPS'的顺序选择，不收敛则向后切换
             **kwargs: 用于输入到求解器的参数
+        
+        Solvers:
+        --------
+        * 'Newmark-Newton' - Newmark-β积分与牛顿迭代法，计算速度快
+        * 'OPS' - 基于OpenSees的Newmark积分和迭代算法，内置自适应调整时间步长和不同
+          迭代算法的切换，收敛性强，但计算速度较慢
+        * 'auto' - 按照'Newmark-Newton'->'OPS'的顺序选择，不收敛则向后切换
         """
         if not isinstance(parallel, int) and parallel < 0:
             LOGGER.error(f'The parallel parameter should be a non-negative integer: {parallel}')
@@ -305,6 +321,21 @@ class NRSA:
     def run(self):
         if (not self.damping_equal_5pct) and (self.analysis_type == 'CDA'):
             self._write_unscaled_spectra_with_specific_damping()
+        try:
+            self.para_groups = list(product(*self.material_paras.values()))  # 材料参数组合
+        except TypeError:
+            self.para_groups = list((self.material_paras.values(),))
+        num_paras = len(self.para_groups)
+        if num_paras > 1:
+            # 如果材料参数组合数大于1，则创建子文件夹
+            for paras in self.para_groups:
+                subfoler = 'results_' + '_'.join([str(term) for term in paras])
+                if not (self.wkdir / subfoler).exists():
+                    os.makedirs(self.wkdir / subfoler)
+        else:
+            subfoler = 'results'
+            if not Path(self.wkdir / subfoler).exists():
+                os.makedirs(self.wkdir / subfoler)
         job = {}
         job['Job name'] = self.job_name
         job['Time'] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())

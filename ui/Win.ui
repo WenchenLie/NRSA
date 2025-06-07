@@ -270,7 +270,7 @@
              </size>
             </property>
             <property name="text">
-             <string>Finished ground motions: 0</string>
+             <string>Finished SDOF tasks: 0</string>
             </property>
            </widget>
           </item>

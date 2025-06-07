@@ -191,7 +191,7 @@ class Ui_Win(object):
         self.label.setText(_translate("Win", "Start time:"))
         self.label_3.setText(_translate("Win", "Parallel:"))
         self.groupBox.setTitle(_translate("Win", "Progress"))
-        self.label_6.setText(_translate("Win", "Finished ground motions: 0"))
+        self.label_6.setText(_translate("Win", "Finished SDOF tasks: 0"))
         self.label_7.setText(_translate("Win", "Finished analyses: 0"))
         self.label_11.setText(_translate("Win", "Unconverged iterations: 0"))
         self.label_9.setText(_translate("Win", "Unconverged analyses: 0"))

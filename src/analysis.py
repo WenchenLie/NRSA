@@ -384,7 +384,7 @@ class TimeHistoryAnalysis(CSA_THA):
         super().__init__(job_name, cache_dir, analysis_type='THA')
 
     def analysis_settings(self,
-            Ti: float | None,
+            Ti: float,
             material_function: Callable[[float, float], tuple[str, list, float, float]],
             material_paras: dict[str, tuple | float],
             damping: float,
@@ -396,7 +396,7 @@ class TimeHistoryAnalysis(CSA_THA):
         """设置分析参数
 
         Args:
-            Ti (float | None): 周期点
+            Ti (float): 周期点
             material_function (Callable[[float, float, float, float], tuple[str, list, float, float]]): 获取opensees材料格式的函数
             material_paras (dict[str, float]): 材料定义所需参数
             damping (float): 阻尼比
@@ -409,10 +409,16 @@ class TimeHistoryAnalysis(CSA_THA):
             10, 1, 1, 0.01, 0.01, 100,
             thetaD, mass, height, fv_duration)
         
-    def get_results(self, plot: bool=True) -> np.ndarray:
+    def get_results(self,
+            gm_name: str,
+            matarial_paras: dict[str, float]=None,
+            plot: bool=True
+        ) -> np.ndarray:
         """获取分析结果
 
         Args:
+            gm_name (str): 地震动名称
+            matarial_paras (dict[str, float]): 材料参数
             plot (bool, optional): 是否绘制结果图
         
         Returns:
@@ -428,81 +434,32 @@ class TimeHistoryAnalysis(CSA_THA):
         ylabels = ['Acceleration [g]', 'Displacement', 'Velocity',
                    'Acceleration', 'Energy', 'Energy', 'Displacement',
                    'Displacement', 'Reaction', 'Force', 'Force', 'Force']
-        for gm_name in self.GM_names:
-            results: np.ndarray = np.load(self.wkdir / f'results/{gm_name}.npy')
-            time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th = results.T
-            plt.subplot(341)
-            plt.title(titles[0])
-            plt.plot(time_, ag_scaled / 9800, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[0])
-            plt.legend()
-            plt.subplot(342)
-            plt.title(titles[1])
-            plt.plot(time_, disp_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[1])
-            plt.legend()
-            plt.subplot(343)
-            plt.title(titles[2])
-            plt.plot(time_, vel_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[2])
-            plt.legend()
-            plt.subplot(344)
-            plt.title(titles[3])
-            plt.plot(time_, accel_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[3])
-            plt.legend()
-            plt.subplot(345)
-            plt.title(titles[4])
-            plt.plot(time_, Ec_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[4])
-            plt.legend()
-            plt.subplot(346)
-            plt.title(titles[5])
-            plt.plot(time_, Ev_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[5])
-            plt.legend()
-            plt.subplot(347)
-            plt.title(titles[6])
-            plt.plot(time_, CD_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[6])
-            plt.legend()
-            plt.subplot(348)
-            plt.title(titles[7])
-            plt.plot(time_, CPD_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[7])
-            plt.legend()
-            plt.subplot(349)
-            plt.title(titles[8])
-            plt.plot(time_, reaction_th, label=gm_name)
-            plt.xlabel('Time [s]')
-            plt.ylabel(ylabels[8])
-            plt.legend()
-            plt.subplot(3, 4, 10)
-            plt.title(titles[9])
-            plt.plot(disp_th, eleForce_th, label=gm_name)
-            plt.xlabel('Displement')
-            plt.ylabel(ylabels[9])
-            plt.legend()
-            plt.subplot(3, 4, 11)
-            plt.title(titles[10])
-            plt.plot(disp_th, dampingForce_th, label=gm_name)
-            plt.xlabel('Displement')
-            plt.legend()
-            plt.subplot(3, 4, 12)
-            plt.title(titles[11])
-            total_force = eleForce_th + dampingForce_th
-            plt.plot(disp_th, total_force, label=gm_name)
-            plt.xlabel('Displement')
-            plt.ylabel(ylabels[11])
-            plt.legend()
+        subfoler = 'results'
+        suptitle = f'Ground motions "{gm_name}", '
+        if (len(self.para_groups)) > 1:
+            if matarial_paras is None:
+                raise ValueError('Argument `matarial_paras` should be given when there are multiple material parameters')
+            subfoler = 'results_' + '_'.join([str(term) for term in matarial_paras.values()])
+            suptitle += ', '.join([f'{key}={value}' for key, value in matarial_paras.items()])
+        else:
+            suptitle += ', '.join([f'{key}={value}' for key, value in self.material_paras.items()])
+        results: np.ndarray = np.load(self.wkdir / subfoler / f'{gm_name}.npy')
+        time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th = results.T
+        total_force = eleForce_th + dampingForce_th
+        ydata = [ag_scaled / 9800, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th, total_force]
+        for i in range(12):
+            plt.subplot(3, 4, i + 1)
+            plt.title(titles[i])
+            if i <= 8:
+                xdata = time_
+                xlabel = 'Time [s]'
+            elif 9 <= i <= 11:
+                xdata = disp_th
+                xlabel = 'Displacement'
+            plt.plot(xdata, ydata[i])
+            plt.xlabel(xlabel)
+            plt.ylabel(ylabels[i])
+        plt.suptitle(suptitle)
         plt.tight_layout()
         plt.savefig(self.wkdir / f'Results.png', dpi=600)
         if plot:

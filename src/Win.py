@@ -4,7 +4,7 @@ if TYPE_CHECKING:
     from .NRSA import NRSA
 import os, time, json
 import multiprocessing
-from multiprocessing.pool import AsyncResult
+from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -48,6 +48,7 @@ class Win(QDialog):
         self.Ti = nrsa.Ti
         self.material_function = nrsa.material_function
         self.material_paras = nrsa.material_paras
+        self.para_groups = nrsa.para_groups
         self.damping = nrsa.damping
         self.target_ductility = nrsa.target_ductility
         self.R_init = nrsa.R_init
@@ -93,7 +94,7 @@ class Win(QDialog):
         self.ui.pushButton_4.clicked.connect(self.ui_open_wkdir)
         self.ui.pushButton.clicked.connect(self.ui_kill)
         self.ui.pushButton_3.clicked.connect(self.ui_pause_resume)
-        self.ui_update_progressBar((int(self.finished_gm / self.GM_N * 100), f'Finished ground motions: {self.finished_gm}'))
+        self.ui_update_progressBar(0)
         self.ui_update_finished_gm(0)
         self.ui_update_finished_ana(0)
         self.ui_update_average_iteration(0)
@@ -104,7 +105,8 @@ class Win(QDialog):
 
     def ui_kill(self):
         """点击中断按钮"""
-        if QMessageBox.question(self, 'Warning', 'Are you sure to interrupt the analysis?') == QMessageBox.Yes:
+        if QMessageBox.question(self, 'Warning',
+                'Are you sure to interrupt the analysis?') == QMessageBox.Yes:
             LOGGER.warning('Interrupting analysis')
             self.worker.kill()
 
@@ -118,15 +120,13 @@ class Win(QDialog):
             self.ui.pushButton_3.setText('Resume')
             self.ui.label_12.setText('Status: Paused')
 
-    def ui_update_progressBar(self, tuple_):
+    def ui_update_progressBar(self, val: int):
         """设置进度条(进度值, 文本)"""
-        val, text = tuple_
-        self.ui.label_6.setText(text)
         self.ui.progressBar.setValue(val)
 
     def ui_update_finished_gm(self, n: int):
         """设置已完成的地震动数量"""
-        self.ui.label_6.setText(f'Finished ground motions: {n}')
+        pass
 
     def ui_update_finished_ana(self, n: int):
         """设置已计算次数"""
@@ -134,7 +134,7 @@ class Win(QDialog):
 
     def ui_update_finished_sdof(self, n: int):
         """设置已完成的SDOF数量"""
-        pass
+        self.ui.label_6.setText(f'Finished SDOF tasks: {n}')
 
     def ui_update_uncorverged_ana(self, n: int):
         """设置未收敛的分析数量"""
@@ -182,7 +182,7 @@ class Win(QDialog):
 
 class _Worker(QThread):
     """处理计算任务的子线程"""
-    signal_update_progressBar = pyqtSignal(tuple)  # 更新进度条
+    signal_update_progressBar = pyqtSignal(int)  # 更新进度条
     signal_update_finished_gm = pyqtSignal(int)  # 更新已完成地震动数量
     signal_update_finished_ana = pyqtSignal(int)  # 更新已完成分析次数
     signal_update_finished_sdof = pyqtSignal(int)  # 更新已完成SDOF数量
@@ -205,6 +205,7 @@ class _Worker(QThread):
         self.Ti = win.Ti
         self.material_function = win.material_function
         self.material_paras = win.material_paras
+        self.para_groups = win.para_groups
         self.damping = win.damping
         self.target_ductility = win.target_ductility
         self.R_init = win.R_init
@@ -256,10 +257,7 @@ class _Worker(QThread):
             'Start time': time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(self.start_time)),
             'Parallel': self.parallel,
             'Ground motion folder': self.GM_folder.as_posix(),
-            'Ground motions': {}
         }
-        for gm_name in self.GM_names:
-            self.log['Ground motions'][gm_name] = {}
 
     def get_queue(self, queue: multiprocessing.Queue):
         """进程通讯"""
@@ -268,6 +266,7 @@ class _Worker(QThread):
         finished_sdof = 0  # 已完成的SDOF数量
         uncorverged_ana = 0  # 未收敛的地震动数量
         uncorverged_iter = 0  # 未收敛的迭代数量
+        counter_finished = 0  # 已完成的任务数
         start_date = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(self.start_time))
         while True:
             if not queue.empty():
@@ -275,22 +274,16 @@ class _Worker(QThread):
                     flag, contents = key, value
                 if flag == 'a':
                     # 该条地震动完成
-                    GM_name, num_ana, num_period, iter_converge, solving_converge, start_time, end_time, mean_ana = contents
+                    counter_finished += 1
+                    GM_name, num_ana, num_period, iter_converge, solving_converge,\
+                        start_time, end_time, mean_ana = contents
                     finished_gm += 1
                     finished_ana += num_ana
                     finished_sdof += num_period
-                    self.signal_update_progressBar.emit((int(finished_gm / self.GM_N * 100), f'Finished ground motions: {finished_gm}'))
+                    self.signal_update_progressBar.emit(int(counter_finished / self.counter_requried * 100))
                     self.signal_update_finished_ana.emit(finished_ana)
                     self.signal_update_finished_sdof.emit(finished_sdof)
                     self.signal_update_average_iteration.emit(finished_ana / finished_sdof)
-                    self.log['Ground motions'][GM_name]['Start time'] = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(start_time))
-                    self.log['Ground motions'][GM_name]['End time'] = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(end_time))
-                    self.log['Ground motions'][GM_name]['Elapsed time'] = round(end_time - start_time, 3)
-                    self.log['Ground motions'][GM_name]['Analysis number'] = num_ana
-                    self.log['Ground motions'][GM_name]['Analysis converge'] = bool(solving_converge)
-                    if self.analysis_type == 'CDA':
-                        self.log['Ground motions'][GM_name]['Iteration converge'] = bool(iter_converge)
-                        self.log['Ground motions'][GM_name]['Average analyses'] = mean_ana
                 elif flag == 'b':
                     # 计算不收敛
                     GM_name, Ti, solver_paras = contents
@@ -312,8 +305,7 @@ class _Worker(QThread):
                 elif flag == 'f':
                     # 该地震动计算开始
                     ...
-                if finished_gm == self.GM_N:
-                    # 所有计算完成
+                if counter_finished == self.counter_requried:
                     if uncorverged_ana == 0 and uncorverged_iter == 0:
                         self.signal_ana_suscess.emit()
                     else:
@@ -355,76 +347,109 @@ class _Worker(QThread):
         """开始运行子线程，进行等延性分析"""
         s = '(Multi-processing)' if self.parallel > 1 else ''
         LOGGER.success(f'Running started: {ANA_TYPE_NAME[self.analysis_type]} {s}')
-        ls_paras: list[tuple] = []
         queue = self.queue
         stop_event = self.stop_event
         pause_event = self.pause_event
         lock = self.lock
+        para_groups = self.para_groups
+        num_paras = len(para_groups)  # 材料参数的组合数
+        subfoler = 'results'
+        self.set_button_enabled()
+        self.counter_requried = 0  # SDOF任务计数器
+        th_shm_ls: list[SharedMemory] = []
+        NPTS_ls: list[int] = []
         for gm_idx in range(self.GM_N):
-            wkdir = self.wkdir
-            periods = self.period
-            Ti = self.Ti
-            material_function = self.material_function
-            material_paras = self.material_paras
-            damping = self.damping
-            target_ductility = self.target_ductility
-            thetaD = self.thetaD
-            mass = self.mass
-            he = self.he
+            # 将地震动数据存储到共享内存中
             gm_name = self.GM_names[gm_idx]
             gm_th = np.loadtxt(self.GM_folder / f'{gm_name}{self.suffix}')
-            scaling_factor = self.GM_global_sf
-            dt = self.GM_dts[gm_idx]
-            fv_duration = self.fv_duration
-            R_init = self.R_init
-            R_incr = self.R_incr
-            if self.analysis_type == 'CDA':
-                # 等延性分析中，Sa为采用分析阻尼比的无缩放谱加速度
-                if isinstance(self.unscaled_RSA_spc, dict):
-                    Sa_ls = self.unscaled_RSA_spc[self.damping][:, gm_idx]
-                else:
-                    Sa_ls = self.unscaled_RSA_spc[:, gm_idx]
-            elif self.analysis_type in ['CSA', 'THA']:
-                # 等强度分析或时程分析中，Sa为采用5%阻尼比的缩放后的谱加速度
-                Sa_ls = self.unscaled_RSA_5pct[:, gm_idx] * self.GM_indiv_sf[gm_idx]
-            solver = self.solver
-            tol_ductility = self.tol_ductility
-            tol_R = self.tol_R
-            max_iter = self.max_iter
-            hidden_prints = self.hidden_prints
-            kwargs = self.kwargs
-            if self.analysis_type == 'CDA':
-                args = (wkdir, periods, material_function, material_paras, damping, target_ductility,\
-                    thetaD, mass, he, gm_name, gm_th, scaling_factor, dt, fv_duration, R_init, R_incr,\
-                    Sa_ls, solver, tol_ductility, tol_R, max_iter, hidden_prints, queue, stop_event, pause_event,\
-                    lock)
-                func = constant_ductility_iteration
-            elif self.analysis_type == 'CSA':
-                scaling_factor *= self.GM_indiv_sf[gm_idx]
-                args = (wkdir, periods, material_function, material_paras, damping, thetaD, mass, he,\
-                    gm_name, gm_th, scaling_factor, dt, fv_duration, Sa_ls, solver, hidden_prints,\
-                    queue, stop_event, pause_event, lock)
-                func = constant_strength_analysis
-            elif self.analysis_type == 'THA':
-                period = PERIOD
-                get_Sa = interp1d(period, Sa_ls, kind='linear', fill_value='extrapolate')
-                scaling_factor *= self.GM_indiv_sf[gm_idx]
-                args = (wkdir, Ti, material_function, material_paras, damping, thetaD, mass, he,\
-                    gm_name, gm_th, scaling_factor, dt, fv_duration, get_Sa, solver, hidden_prints,\
-                    queue, stop_event, pause_event, lock)
-                func = time_history_analysis
+            NPTS_ls.append(gm_th.shape[0])
+            shm = SharedMemory(create=True, size=gm_th.nbytes)
+            shm_array = np.ndarray(gm_th.shape, dtype=gm_th.dtype, buffer=shm.buf)
+            shm_array[:] = gm_th[:]
+            th_shm_ls.append(shm)
+        N_period = len(self.period)
+        period_shm = SharedMemory(create=True, size=self.period.nbytes)
+        period_shm_array = np.ndarray(self.period.shape, dtype=self.period.dtype, buffer=period_shm.buf)
+        period_shm_array[:] = self.period[:]
+        N_PERIOD = len(PERIOD)
+        PERIOD_shm = SharedMemory(create=True, size=PERIOD.nbytes)  # 全局周期，仅用于计算地震动反应谱获得Sa(Ti)
+        PERIOD_shm_array = np.ndarray(PERIOD.shape, dtype=PERIOD.dtype, buffer=PERIOD_shm.buf)
+        PERIOD_shm_array[:] = PERIOD[:]
+        if self.analysis_type == 'CDA':
+            # 等延性分析中，Sa为采用分析阻尼比的无缩放谱加速度
+            if isinstance(self.unscaled_RSA_spc, dict):
+                Sa_ls = self.unscaled_RSA_spc[self.damping][:, gm_idx]
             else:
-                assert False, f'Unknow running type: {self.analysis_type}'
-            ls_paras.append(args)
-        self.set_button_enabled()
+                Sa_ls = self.unscaled_RSA_spc[:, gm_idx]
+        elif self.analysis_type in ['CSA', 'THA']:
+            # 等强度分析或时程分析中，Sa为采用5%阻尼比的缩放后的谱加速度
+            Sa_ls = self.unscaled_RSA_5pct[:, gm_idx] * self.GM_indiv_sf[gm_idx]
+        # 将Sa存储到共享内存中
+        Sa_shm = SharedMemory(create=True, size=Sa_ls.nbytes)
+        Sa_shm_array = np.ndarray(Sa_ls.shape, dtype=Sa_ls.dtype, buffer=Sa_shm.buf)
+        Sa_shm_array[:] = Sa_ls[:]
         with multiprocessing.Pool(self.parallel) as pool:
-            for idx_gm in range(self.GM_N):
-                pool.apply_async(func, args=ls_paras[idx_gm], kwds=kwargs)
+            for para_group in para_groups:
+                if num_paras > 1:
+                    subfoler = 'results_' + '_'.join([str(term) for term in para_group])
+                for gm_idx in range(self.GM_N):
+                    self.counter_requried += 1
+                    wkdir = self.wkdir
+                    periods = self.period
+                    Ti = self.Ti
+                    material_function = self.material_function
+                    damping = self.damping
+                    target_ductility = self.target_ductility
+                    thetaD = self.thetaD
+                    mass = self.mass
+                    he = self.he
+                    gm_name = self.GM_names[gm_idx]
+                    gm_shm = th_shm_ls[gm_idx]
+                    NPTS = NPTS_ls[gm_idx]
+                    scaling_factor = self.GM_global_sf
+                    dt = self.GM_dts[gm_idx]
+                    fv_duration = self.fv_duration
+                    R_init = self.R_init
+                    R_incr = self.R_incr
+                    solver = self.solver
+                    tol_ductility = self.tol_ductility
+                    tol_R = self.tol_R
+                    max_iter = self.max_iter
+                    hidden_prints = self.hidden_prints
+                    kwargs = self.kwargs
+                    if self.analysis_type == 'CDA':
+                        args = (wkdir, subfoler, period_shm.name, N_period, material_function, para_group, damping,\
+                                target_ductility, thetaD, mass, he, gm_name, gm_shm.name, NPTS, scaling_factor, dt,\
+                                fv_duration, R_init, R_incr, Sa_shm.name, solver, tol_ductility, tol_R, max_iter,\
+                                hidden_prints, queue, stop_event, pause_event, lock)
+                        func = constant_ductility_iteration
+                    elif self.analysis_type == 'CSA':
+                        scaling_factor *= self.GM_indiv_sf[gm_idx]
+                        args = (wkdir, subfoler, period_shm.name, N_period, material_function, para_group, damping,\
+                                thetaD, mass, he, gm_name, gm_shm.name, NPTS, scaling_factor, dt, fv_duration, Sa_shm.name,\
+                                solver, hidden_prints, queue, stop_event, pause_event, lock)
+                        func = constant_strength_analysis
+                    elif self.analysis_type == 'THA':
+                        scaling_factor *= self.GM_indiv_sf[gm_idx]
+                        args = (wkdir, subfoler, Ti, material_function, para_group, damping, thetaD, mass, he,\
+                                gm_name, gm_shm.name, NPTS, scaling_factor, dt, fv_duration, PERIOD_shm.name, N_PERIOD,\
+                                Sa_shm.name, solver, hidden_prints, queue, stop_event, pause_event, lock)
+                        func = time_history_analysis
+                    else:
+                        assert False, f'Unknow running type: {self.analysis_type}'
+                    pool.apply_async(func, args=args, kwds=kwargs)
             LOGGER.info('Analysis started')
             self.get_queue(queue)
-            pool.close()
-            pool.join()
-
+        for shm in th_shm_ls:
+            shm.close()
+            shm.unlink()
+        period_shm.close()
+        period_shm.unlink()
+        PERIOD_shm.close()
+        PERIOD_shm.unlink()
+        Sa_shm.close()
+        Sa_shm.unlink()
+ 
     def set_button_enabled(self):
         """将`保存`, `中断`, `暂停`三个按钮激活"""
         self.win.ui.pushButton.setEnabled(True)

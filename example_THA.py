@@ -50,15 +50,17 @@ def material_definition(
 
 
 if __name__ == "__main__":
+    Ti = 0.5
+    Cy_ls = [0.5, 1]  # 可以为一个数或一个列表
+    alpha_ls = [0, 0.02]
     time_start = time.time()
     material_paras: dict[str, float] = {
-        'Cy': 0.5,
-        'alpha': 0.02
+        'Cy': Cy_ls,  # A single value or a list of values can be used
+        'alpha': alpha_ls
     }  # 材料定义所需参数，键名可自定义，字典长度应与material_definition函数中args参数个数一致
-    # 需Python 3.7+从而保证字典的键值对顺序不变
     model = TimeHistoryAnalysis(f'Test_THA')
     model.set_working_directory(f'./results_THA', folder_exists='delete')
-    model.analysis_settings(0.4, material_definition, material_paras, damping=0.05, thetaD=0, fv_duration=30)
+    model.analysis_settings(Ti, material_definition, material_paras, damping=0.05, thetaD=0, fv_duration=30)
     model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
     code_spec = np.loadtxt('./data/DBE_spec.txt')
     model.scale_ground_motions('b', 1, code_spec, plot=True)
@@ -66,5 +68,8 @@ if __name__ == "__main__":
     model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
-    results = model.get_results(plot=True)
+    results = model.get_results(
+        gm_name='Northridge',
+        matarial_paras={'Cy': 0.5, 'alpha': 0.02},
+        plot=True)
     time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th = results.T

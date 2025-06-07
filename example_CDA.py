@@ -1,5 +1,6 @@
 import time
 from math import pi, sqrt
+from collections import OrderedDict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -64,10 +65,9 @@ if __name__ == "__main__":
     for miu in miu_ls:
         print(f'Running with miu={miu}')
         material_paras: dict[str, float] = {
-            'alpha': 0.02
+            'alpha': 0.02  # A single value or a list of values can be used.
         }  # Required parameters for material definition, can be customized by user.
         # The length of the dictionary should be the same as the number of arguments in the `material_definition` function.
-        # Requires Python 3.7+ to preserve the order of dictionary items.
         model = ConstantDuctilityAnalysis(f'Test_{miu}')
         model.set_working_directory(f'./CDA_results/{miu}', folder_exists='delete')
         model.analysis_settings(T, material_definition, material_paras,
@@ -81,7 +81,7 @@ if __name__ == "__main__":
             thetaD=0  # P-Delta coefficient
         )
         model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
-        model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True, solver='auto')
+        model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True)
         model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
