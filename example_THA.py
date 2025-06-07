@@ -70,6 +70,6 @@ if __name__ == "__main__":
     print(f'Elapsed time: {time_end - time_start:.2f}')
     results = model.get_results(
         gm_name='Northridge',
-        matarial_paras={'Cy': 0.5, 'alpha': 0.02},
+        material_paras={'Cy': 0.5, 'alpha': 0.02},
         plot=True)
     time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th = results.T

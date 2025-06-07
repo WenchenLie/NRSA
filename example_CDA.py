@@ -1,6 +1,5 @@
 import time
 from math import pi, sqrt
-from collections import OrderedDict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt

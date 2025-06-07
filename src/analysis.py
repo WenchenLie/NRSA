@@ -411,14 +411,14 @@ class TimeHistoryAnalysis(CSA_THA):
         
     def get_results(self,
             gm_name: str,
-            matarial_paras: dict[str, float]=None,
+            material_paras: dict[str, float]=None,
             plot: bool=True
         ) -> np.ndarray:
         """获取分析结果
 
         Args:
             gm_name (str): 地震动名称
-            matarial_paras (dict[str, float]): 材料参数
+            material_paras (dict[str, float]): 材料参数
             plot (bool, optional): 是否绘制结果图
         
         Returns:
@@ -437,10 +437,10 @@ class TimeHistoryAnalysis(CSA_THA):
         subfoler = 'results'
         suptitle = f'Ground motions "{gm_name}", '
         if (len(self.para_groups)) > 1:
-            if matarial_paras is None:
-                raise ValueError('Argument `matarial_paras` should be given when there are multiple material parameters')
-            subfoler = 'results_' + '_'.join([str(term) for term in matarial_paras.values()])
-            suptitle += ', '.join([f'{key}={value}' for key, value in matarial_paras.items()])
+            if material_paras is None:
+                raise ValueError('Argument `material_paras` should be given when there are multiple material parameters')
+            subfoler = 'results_' + '_'.join([str(term) for term in material_paras.values()])
+            suptitle += ', '.join([f'{key}={value}' for key, value in material_paras.items()])
         else:
             suptitle += ', '.join([f'{key}={value}' for key, value in self.material_paras.items()])
         results: np.ndarray = np.load(self.wkdir / subfoler / f'{gm_name}.npy')
