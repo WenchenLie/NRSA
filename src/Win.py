@@ -7,8 +7,7 @@ import multiprocessing
 from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
-from scipy.interpolate import interp1d
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QDialog
 
 from ui.Win import Ui_Win
@@ -79,8 +78,14 @@ class Win(QDialog):
         self.kwargs = nrsa.kwargs
         # 新实例属性
         self.N_period = len(self.period)  # 周期点数量
+        if self.analysis_type == 'THA':
+            self.N_period = 1  # 时程只有一个周期点
         self.finished_gm = 0  # 已完成的地震动数量
         self.finished_num = 0  # 已计算次数
+        self.finished_sdof = 0  # 已完成的SDOF数量
+        self.required_sdof = self.N_period * self.GM_N * len(self.para_groups)  # 所需计算的SDOF数量
+        self.finished_analyses = 0  # 已完成的分析数量
+        self.progress: list[tuple[float, int, int]] = []  # 进度记录, 包括时间戳，分析数量，SDOF数量，每1秒更新一次
 
     def init_ui(self):
         self.setWindowFlags(Qt.WindowMinMaxButtonsHint)
@@ -131,10 +136,12 @@ class Win(QDialog):
     def ui_update_finished_ana(self, n: int):
         """设置已计算次数"""
         self.ui.label_7.setText(f'Finished analyses: {n}')
+        self.finished_analyses = n
 
     def ui_update_finished_sdof(self, n: int):
         """设置已完成的SDOF数量"""
         self.ui.label_6.setText(f'Finished SDOF tasks: {n}')
+        self.finished_sdof = n
 
     def ui_update_uncorverged_ana(self, n: int):
         """设置未收敛的分析数量"""
@@ -147,6 +154,34 @@ class Win(QDialog):
     def ui_update_average_iteration(self, n: float):
         """设置平均迭代次数"""
         self.ui.label_5.setText(f'Average iterations: {n:.2f}')
+        
+    def update_progress(self):
+        """更新计算进度"""
+        crt_time = time.time()  # 当前时间
+        self.progress.append((crt_time, self.finished_analyses, self.finished_sdof))
+        if len(self.progress) > 30:
+            last_time, last_ana, last_sdof = self.progress.pop(0)
+        elif len(self.progress) > 1:
+            last_time, last_ana, last_sdof = self.progress[0]
+        elif len(self.progress) == 1:
+            return
+        speed_ana = (self.finished_analyses - last_ana) / (crt_time - last_time)  # 分析速度 (analyses/s)
+        speed_sdof = (self.finished_sdof - last_sdof) / (crt_time - last_time)  # SDOF速度 (tasks/s)
+        if speed_ana == 0:
+            remaining_time = ''
+        else:
+            remaining_time = (self.required_sdof - self.finished_sdof) / speed_sdof  # 剩余时间 (s)
+            remaining_time = time.strftime('%H:%M:%S', time.gmtime(remaining_time))  # 剩余时间
+        self.ui_update_speed(speed_ana, speed_sdof)
+        self.ui_update_remaining_time(remaining_time)
+   
+    def ui_update_speed(self, speed_ana: float, speed_sdof: float):
+        """更新analysis速度和SDOF速度"""
+        self.ui.label_14.setText(f'Speed: {speed_sdof:.1f} tasks/s, {speed_ana:.1f} analyses/s')
+        
+    def ui_update_remaining_time(self, remaining_time: str):
+        """更新剩余时间"""
+        self.ui.label_13.setText(f'Remaining time: {remaining_time}')
 
     def ana_termination(self):
         """分析结束"""
@@ -178,6 +213,9 @@ class Win(QDialog):
         self.worker.signal_ana_termination.connect(self.ana_termination)
         self.worker.signal_ana_suscess.connect(self.ana_suscess)
         self.worker.signal_ana_failed.connect(self.ana_failed)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_progress)
+        self.timer.start(1000)
         self.worker.start()
 
 class _Worker(QThread):
