@@ -249,8 +249,17 @@ class NRSA:
             dt_dict = json.loads(f.read())
         self.GM_dts, self.GM_NPTS, self.GM_durations = [], [], []
         for name in self.GM_names:
-            self.GM_dts.append(dt_dict[name])
-            th = np.loadtxt(GM_folder / f'{name}{suffix}')
+            try:
+                self.GM_dts.append(dt_dict[name])
+            except KeyError as e:
+                LOGGER.error(f'Time step not found in GM_info.json for ground motion "{name}"')
+                raise e
+            try:
+                th = np.loadtxt(GM_folder / f'{name}{suffix}')
+            except FileNotFoundError as e:
+                path = (GM_folder / f"{name}{suffix}").absolute().as_posix()
+                LOGGER.error(f'Ground motion file not found: {path}')
+                raise e
             self.GM_NPTS.append(len(th))
             self.GM_durations.append(round((len(th) - 1) * dt_dict[name], 6))
         self.GM_N = len(self.GM_names)
