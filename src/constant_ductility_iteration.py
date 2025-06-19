@@ -271,10 +271,10 @@ def _constant_ductility_iteration(
     mean_iter = np.mean(num_iters)
     mean_ana = num_ana / num_period
     end_time = time.time()
-    queue.put({'a': (GM_name, num_ana, num_period, iter_converge, solving_converge, start_time, end_time, mean_ana)})
     lock.acquire()
     results.to_csv(wkdir / subfolder / f'{GM_name}.csv', index=False)
     lock.release()
+    queue.put({'a': (GM_name, num_ana, num_period, iter_converge, solving_converge, start_time, end_time, mean_ana)})
     return None
 
 

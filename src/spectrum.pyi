@@ -23,4 +23,3 @@ def spectrum(
     """
     ...
     
-# TODO: spectrum.pyd没有上传

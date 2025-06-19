@@ -169,10 +169,10 @@ def _constant_strength_analysis(
         results.loc[row, 'miu'] = maxDisp / uy
         results.loc[row, 'solving_converge'] = solving_converge
     end_time = time.time()
-    queue.put({'a': (GM_name, num_ana, num_period, None, solving_converge, start_time, end_time, None)})
     lock.acquire()
     results.to_csv(wkdir / subfolder / f'{GM_name}.csv', index=False)
     lock.release()
+    queue.put({'a': (GM_name, num_ana, num_period, None, solving_converge, start_time, end_time, None)})
     return None
 
 

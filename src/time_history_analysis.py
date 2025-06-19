@@ -174,11 +174,11 @@ def _time_history_analysis(
     results.loc[row, 'miu'] = maxDisp / uy
     results.loc[row, 'solving_converge'] = solving_converge
     end_time = time.time()
-    queue.put({'a': (GM_name, num_ana, 1, None, solving_converge, start_time, end_time, None)})
     time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th = res_th
     res_data = np.column_stack((time_, ag_scaled, disp_th, vel_th, accel_th, Ec_th, Ev_th, CD_th, CPD_th, reaction_th, eleForce_th, dampingForce_th))
     lock.acquire()
     results.to_csv(wkdir / subfolder / f'{GM_name}.csv', index=False)
     np.save(wkdir / subfolder / f'{GM_name}.npy', res_data)
     lock.release()
+    queue.put({'a': (GM_name, num_ana, 1, None, solving_converge, start_time, end_time, None)})
     return None

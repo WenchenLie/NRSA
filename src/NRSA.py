@@ -63,6 +63,7 @@ class NRSA:
     def _init_variables(self):
         """初始化实例变量"""
         self.wkdir: Path = None
+        self.skip_existed_res = False
         self.period: np.ndarray = None
         self.material_function: Callable[[float, float, float, float], tuple[str, list, float, float]] = None
         self.material_paras: dict[str, float] = None
@@ -92,12 +93,15 @@ class NRSA:
         self.unscaled_spectra_folder_spc: Path  # 指定阻尼比反应谱路径
         self.kwargs = {}  # 用于输入到求解器的参数
 
-    def set_working_directory(self, wkdir: str | Path, folder_exists: Literal['ask', 'overwrite', 'delete']='ask'):
+    def set_working_directory(self,
+            wkdir: str | Path,
+            folder_exists: Literal['ask', 'overwrite', 'delete', 'skip']='ask'):
         """设置工作路径
 
         Args:
             wkdir (str | Path): 工作路径
-            folder_exists (Literal['ask', 'overwrite', 'delete'], optional): 如果工作路径文件夹已存在，是否询问、覆盖、删除，默认询问
+            folder_exists (Literal['ask', 'overwrite', 'delete', 'skip'], optional): 
+              如果工作路径文件夹已存在如何处理(询问、覆盖、删除，跳过已存在的结果，默认询问)
         """
         self.wkdir = Path(wkdir).absolute()
         if not self._check_path_name(self.wkdir):
@@ -108,6 +112,8 @@ class NRSA:
             return
         if not Path(self.wkdir).exists():
             os.makedirs(self.wkdir)
+        if folder_exists == 'skip':
+            self.skip_existed_res = True
         LOGGER.success(f'Working directory has been set: {self.wkdir.as_posix()}')
 
     def analysis_settings(self,
@@ -404,9 +410,9 @@ class NRSA:
         return True
 
     @staticmethod
-    def _check_folder(folder, folder_exists: Literal['ask', 'overwrite', 'delete']):
-        if folder_exists not in ['ask', 'overwrite', 'delete']:
-            raise ValueError(f'`folder_exists` should be "ask", "overwrite", or "delete"：{folder_exists}')
+    def _check_folder(folder, folder_exists: Literal['ask', 'overwrite', 'delete', 'skip']):
+        if folder_exists not in ['ask', 'overwrite', 'delete', 'skip']:
+            raise ValueError(f'`folder_exists` should be "ask", "overwrite", "delete", or "skip"：{folder_exists}')
         folder = Path(folder)
         # 判断输出文件夹是否存在
         if os.path.exists(folder):
@@ -429,6 +435,8 @@ class NRSA:
                 shutil.rmtree(folder)
                 LOGGER.warning(f'"{folder.as_posix()}" exists, has been deleted')
                 os.makedirs(folder)
+                return True
+            elif folder_exists == 'skip':
                 return True
         else:
             os.makedirs(folder)

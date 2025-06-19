@@ -68,7 +68,7 @@ if __name__ == "__main__":
         }  # Required parameters for material definition, can be customized by user.
         # The length of the dictionary should be the same as the number of arguments in the `material_definition` function.
         model = ConstantDuctilityAnalysis(f'Test_{miu}')
-        model.set_working_directory(f'./CDA_results/{miu}', folder_exists='delete')
+        model.set_working_directory(f'./results_CDA/{miu}', folder_exists='delete')
         model.analysis_settings(T, material_definition, material_paras,
             damping=0.05,  # Damping ratio
             target_ductility=miu,  # Target ductility
@@ -80,7 +80,7 @@ if __name__ == "__main__":
             thetaD=0  # P-Delta coefficient
         )
         model.select_ground_motions('./data/GMs', ['Northridge', 'Kobe'], suffix='.txt')
-        model.running_settings(parallel=10, auto_quit=True, hidden_prints=True, show_monitor=True)
+        model.running_settings(parallel=2, auto_quit=True, hidden_prints=True, show_monitor=True)
         model.run()
     time_end = time.time()
     print(f'Elapsed time: {time_end - time_start:.2f}')
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     for i, gm in enumerate(['Northridge', 'Kobe']):
         plt.subplot(2, 1, i + 1)
         for j, miu in enumerate(miu_ls):
-            res = pd.read_csv(f'./CDA_results/{miu}/results/{gm}.csv')
+            res = pd.read_csv(f'./results_CDA/{miu}/results/{gm}.csv')
             T = res['T']
             a = res['maxAccel'] / g
             res_ssm = np.loadtxt(f'./data/SeismiSignal_results/{gm}.txt', skiprows=1)
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     for i, gm in enumerate(['Northridge', 'Kobe']):
         plt.subplot(2, 1, i + 1)
         for j, miu in enumerate([2, 3, 4]):
-            res = pd.read_csv(f'./CDA_results/{miu}/results/{gm}.csv')
+            res = pd.read_csv(f'./results_CDA/{miu}/results/{gm}.csv')
             T = res['T']
             R = res['R']
             plt.plot(T, R, label=f'miu={miu}')
